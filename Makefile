@@ -49,8 +49,12 @@ $(SERVICE): $(CORE_SRC) $(CORE_HDR) src/macos/main.m macos/Info.plist
 	@rm -rf $@
 	@mkdir -p $@/Contents/MacOS
 	cp macos/Info.plist $@/Contents/Info.plist
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fobjc-arc -o $@/Contents/MacOS/TeXAspell \
+	$(CC) $(CPPFLAGS) $(CFLAGS) -fobjc-arc -o build/TeXAspell \
 		$(CORE_SRC) src/macos/main.m $(LDFLAGS) $(LDLIBS) -framework AppKit
+	cp build/TeXAspell $@/Contents/MacOS/TeXAspell
+	@# codesign refuses files carrying extended attributes (Finder info,
+	@# quarantine, iCloud/File Provider metadata), so strip them first.
+	xattr -cr $@
 	codesign --force --sign - $@
 
 install: $(SERVICE) build/texaspell
