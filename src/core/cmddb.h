@@ -15,6 +15,7 @@
 typedef struct cmddb {
     strset cmds;        /* command names without backslash */
     strset envs;        /* environment names                */
+    strset keys;        /* option keys (pdftitle, margin)   */
     strset tried;       /* file names already looked up     */
     strset loaded;      /* file names found and read        */
     char kpsewhich[1024];
@@ -34,11 +35,16 @@ size_t cmddb_load(cmddb *db, const char *const *names, size_t count, int *found)
 int cmddb_has_command(const cmddb *db, const char *name, size_t len);
 int cmddb_has_environment(const cmddb *db, const char *name, size_t len);
 
-/* Find up to max known names within edit distance 2 of name. If env is
- * true, environment names are searched, otherwise command names. Results
- * are malloc'd and returned best first. extra is a further set of
- * candidates to consider (may be NULL). */
-size_t cmddb_suggest(const cmddb *db, const strset *extra, int env,
+int cmddb_has_key(const cmddb *db, const char *name, size_t len);
+/* Was this file (e.g. "hyperref.sty") found and read? */
+int cmddb_loaded(const cmddb *db, const char *file);
+
+typedef enum { CMDDB_COMMANDS, CMDDB_ENVIRONMENTS, CMDDB_KEYS } cmddb_kind;
+
+/* Find up to max known names of the given kind within edit distance 2 of
+ * name. Results are malloc'd and returned best first. extra is a further
+ * set of candidates to consider (may be NULL). */
+size_t cmddb_suggest(const cmddb *db, const strset *extra, cmddb_kind kind,
                      const char *name, size_t len, char **out, size_t max);
 
 /* Optimal string alignment distance, giving up (returning limit + 1) once

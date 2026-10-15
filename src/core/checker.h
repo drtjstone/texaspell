@@ -14,7 +14,8 @@ typedef struct texaspell texaspell;
 typedef enum {
     TA_WORD = 0,        /* misspelt prose word        */
     TA_COMMAND = 1,     /* unknown \command           */
-    TA_ENVIRONMENT = 2  /* unknown environment name   */
+    TA_ENVIRONMENT = 2, /* unknown environment name   */
+    TA_OPTION = 3       /* unknown key in \hypersetup{..} and similar */
 } ta_kind;
 
 typedef struct ta_issue {
@@ -35,8 +36,8 @@ size_t ta_check(texaspell *ta, const char *text, size_t len,
                 ta_issue **out, size_t *nwords);
 
 /* Suggestions for a flagged word. A word starting with a backslash is
- * treated as a command; an environment name flagged recently is treated as
- * an environment. Each out[i] is malloc'd. */
+ * treated as a command; an environment name or option key flagged recently
+ * is treated as one. Each out[i] is malloc'd. */
 size_t ta_suggest(texaspell *ta, const char *word, size_t len,
                   char **out, size_t max);
 

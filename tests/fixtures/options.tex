@@ -1,0 +1,26 @@
+\documentclass{article}
+\usepackage[a4paper,margin=2cm]{geometry}
+\usepackage{hyperref,caption,listings,siunitx,enumitem,xcolor}
+\hypersetup{
+  pdftitle={Public Finanse Review},
+  pdfauthor={A. N. Other},
+  pdfsubject = Spending plans,
+  pdfkeywords={budget, treasury, spending},
+  colorlinks=true, linkcolor=blue, urlcolor=cyan, citecolor=red,
+  bookmarks=true, bookmarksnumbered, bookmarksopen=true, pdfstartview=FitH,
+  pdfpagemode=UseOutlines, breaklinks, unicode, hidelinks, pdfborder={0 0 0},
+  pdfcreator=LaTeX, pdfproducer=pdfTeX, pdfdisplaydoctitle,
+  pdftitel={Typo key}, colourlinks=true
+}
+\geometry{top=2cm, bottom=2.5cm, left=3cm, right=3cm, headheight=14pt, includefoot, landscape, textwidth=15cm, marginparwidth=2cm, bindingoffset=5mm, footskip=1cm, lefft=2cm}
+\captionsetup[figure]{labelfont=bf, font=small, justification=centering, skip=6pt, labelsep=colon, singlelinecheck=false, format=hang, textfont=it, labelfnt=bf}
+\lstset{basicstyle=\ttfamily\small, breaklines=true, frame=single, numbers=left, language=Python, keywordstyle=\color{blue}, showstringspaces=false, tabsize=4, captionpos=b, columns=fullflexible, numberstyle=\tiny, breaklnes=true}
+\sisetup{round-mode=places, round-precision=2, group-separator={,}, per-mode=symbol, detect-all, table-format=3.2, exponent-product=\times, round-mod=places}
+\setlist[itemize]{noitemsep, topsep=0pt, leftmargin=*, label=\textbullet, itemsep=2pt, parsep=0pt, nosep, labelsep=1em, align=left, leftmrgin=2em}
+\usepackage{hyperref,geometry,caption,listings,siunitx,enumitem}
+\hypersetup{pdfnewwindow, pdfpagelayout=TwoColumnRight, pdftoolbar=false, pdfmenubar, pdffitwindow, pdflang=en-GB, plainpages=false, hypertexnames, naturalnames, linktoc=all, final, draft, debug, frenchlinks, ocgcolorlinks, pdfusetitle, psdextra, pageanchor, pdfversion=1.7, pdfcenterwindow, filebordercolor=red, linktocpage, pdfstartpage=1, pdfremotestartview, pdfpagelabels, bookmarksdepth=3, pdfencoding=auto, pdfdirection, pdfprintscaling=None, pdfduplex, pdfnumcopies=1, baseurl=x, allcolors=black, menucolor=red, runcolor=red}
+\geometry{paperwidth=10cm, paperheight=20cm, hmargin=1cm, vmargin=1cm, tmargin=1cm, inner=1cm, outer=1cm, twoside, showframe, a4paper, centering, nohead, nofoot, heightrounded, total={1cm,2cm}, body={1cm,2cm}, layoutwidth=1cm, hscale=0.8, vscale=0.8, columnsep=1cm, ignoreall, reversemp, marginpar=2cm, includeheadfoot, headsep=1cm, lmargin=1cm, rmargin=1cm, bmargin=1cm, textheight=20cm, b5paper, letterpaper, portrait}
+\captionsetup{labelformat=simple, position=top, aboveskip=1pt, belowskip=1pt, width=.8\textwidth, margin=10pt, indention=1em, hypcap=false, list=no, listformat=simple, name=Fig, type=figure, strut=off, parskip=0pt, hangindent=0pt, style=base, labelsep=period, font={small,it}, figurename=Fig., tablename=Tab., calcwidth=1cm, slc=off, belowskip=2pt}
+\setlist{label*=\arabic*., ref=\arabic*, start=1, resume, wide, labelwidth=1em, labelindent=0pt, itemindent=0pt, before=\small, after=\normalsize, font=\bfseries, widest=00, partopsep=0pt, rightmargin=0pt, listparindent=0pt, noitemsep, beginpenalty=10, midpenalty=10, series=x}
+\sisetup{mode=match, propagate-math-font, reset-math-version, text-family-to-math, number-mode=text, unit-mode=math, separate-uncertainty, uncertainty-mode=separate, output-decimal-marker={.}, input-decimal-markers={.,}, group-digits=integer, group-minimum-digits=4, bracket-negative-numbers, table-alignment-mode=format, table-number-alignment=center, inter-unit-product=\ensuremath{{}\cdot{}}, qualifier-mode=bracket, sticky-per, retain-explicit-plus, print-unity-mantissa=false, tight-spacing, range-phrase=--, list-final-separator={ and }, product-units=single, exponent-mode=scientific, drop-zero-decimal, minimum-integer-digits=1, round-minimum=0.01, parse-numbers=false, locale=UK}
+\lstset{aboveskip=1em, belowskip=1em, xleftmargin=1em, framexleftmargin=1em, rulecolor=\color{black}, backgroundcolor=\color{white}, commentstyle=\itshape, stringstyle=\ttfamily, identifierstyle=\ttfamily, emph={a,b}, emphstyle=\bfseries, morekeywords={foo}, literate={á}{{\'a}}1, escapeinside={(*}{*)}, mathescape, firstnumber=1, stepnumber=1, numbersep=5pt, title=Code, caption=Code, label=lst:x, float, linewidth=10cm, breakatwhitespace, postbreak=\mbox{x}, extendedchars, inputencoding=utf8, upquote, keepspaces, showspaces, showtabs, frameround=tttt, framerule=1pt, framesep=1pt, rulesep=1pt, gobble=2, style=mystyle, alsoletter={-}, deletekeywords={x}, sensitive}

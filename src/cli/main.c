@@ -59,6 +59,7 @@ static const char *kind_name(ta_kind k)
     switch (k) {
     case TA_COMMAND: return "command";
     case TA_ENVIRONMENT: return "environment";
+    case TA_OPTION: return "option";
     default: return "spelling";
     }
 }

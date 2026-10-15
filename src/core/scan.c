@@ -22,6 +22,8 @@
  *   C      the name of a counter being defined
  *   G      a comma separated list of packages
  *   L      a document class
+ *   O      a key=value option list: keys are reported for checking, values
+ *          of keys such as pdftitle are prose, other values key=value
  *   ~      optional key=value argument, only if '[' follows immediately
  *
  * Commands not in the table get "~".
@@ -62,7 +64,7 @@ static spec_entry cmd_specs[] = {
     {"includepdf", "kS"}, {"lstinputlisting", "kS"}, {"inputminted", "kSS"},
     {"url", "S"}, {"path", "S"}, {"nolinkurl", "S"}, {"href", "kSP"},
     {"hyperref", "kP"}, {"hyperlink", "SP"}, {"hypertarget", "SP"},
-    {"hypersetup", "K"}, {"pdfbookmark", "kPS"},
+    {"hypersetup", "O"}, {"pdfbookmark", "kPS"},
     /* definitions */
     {"newcommand", "NkkP"}, {"renewcommand", "NkkP"}, {"providecommand", "NkkP"},
     {"DeclareRobustCommand", "NkkP"}, {"NewDocumentCommand", "NSP"},
@@ -97,8 +99,8 @@ static spec_entry cmd_specs[] = {
     {"setmonofont", "kSk"}, {"setmathfont", "kSk"},
     {"usetikzlibrary", "S"}, {"tikzset", "K"}, {"pgfplotsset", "K"},
     {"usepgfplotslibrary", "S"}, {"tikz", "kK"},
-    {"geometry", "K"}, {"newgeometry", "K"}, {"captionsetup", "kK"},
-    {"lstset", "K"}, {"sisetup", "K"}, {"setlist", "kK"},
+    {"geometry", "O"}, {"newgeometry", "O"}, {"captionsetup", "kO"},
+    {"lstset", "O"}, {"sisetup", "O"}, {"setlist", "kO"},
     {"selectlanguage", "S"}, {"foreignlanguage", "SS"}, {"setotherlanguage", "S"},
     {"setmainlanguage", "kS"},
     /* sectioning and other prose-carrying commands */
@@ -234,6 +236,8 @@ typedef struct frame {
     closer closer;
     char env[MAX_ENV];
     const char *resume; /* remaining argument spec once this frame closes */
+    const char *cmd;    /* ... and the command it belongs to */
+    size_t cmdlen;
 } frame;
 
 typedef struct scanner {
@@ -246,6 +250,8 @@ typedef struct scanner {
     int overflow;
     int at_letter;
     int expl;
+    const char *cmd;    /* command whose arguments are being read */
+    size_t cmdlen;
 } scanner;
 
 static frame *top(scanner *sc) { return &sc->st[sc->depth]; }
@@ -261,6 +267,8 @@ static void push(scanner *sc, mode m, closer c, const char *env, size_t envlen,
     f->mode = m;
     f->closer = c;
     f->resume = resume;
+    f->cmd = sc->cmd;
+    f->cmdlen = sc->cmdlen;
     f->env[0] = '\0';
     if (env && envlen < MAX_ENV) {
         memcpy(f->env, env, envlen);
@@ -277,7 +285,10 @@ static const char *pop(scanner *sc)
     }
     if (sc->depth == 0)
         return NULL;
-    return sc->st[sc->depth--].resume;
+    frame *f = &sc->st[sc->depth--];
+    sc->cmd = f->cmd;
+    sc->cmdlen = f->cmdlen;
+    return f->resume;
 }
 
 /* Pop frames down to and including the nearest one with closer c.
@@ -288,6 +299,8 @@ static int pop_to(scanner *sc, closer c, const char **resume)
         if (sc->st[i].closer == c) {
             if (resume)
                 *resume = sc->st[i].resume;
+            sc->cmd = sc->st[i].cmd;
+            sc->cmdlen = sc->st[i].cmdlen;
             sc->depth = i - 1;
             sc->overflow = 0;
             return 1;
@@ -696,6 +709,8 @@ static void name_arg(scanner *sc, char kind, size_t a, size_t b)
 /* Process the argument spec for the command just read, starting at sc->p.
  * Arguments that need scanning push a frame and record the rest of the
  * spec; processing resumes when that frame closes. */
+static void option_list(scanner *sc, size_t a, size_t b);
+
 static void args(scanner *sc, const char *spec)
 {
     if (!spec)
@@ -735,6 +750,13 @@ static void args(scanner *sc, const char *spec)
         }
         if (c != '{')
             return; /* argument given as a single token, or absent */
+        if (k == 'O') {
+            size_t close = match_brace(sc->s, sc->n, q);
+            option_list(sc, q + 1, close);
+            sc->p = close < sc->n ? close + 1 : sc->n;
+            spec++;
+            continue;
+        }
         switch (k) {
         case 'S': case 'K': case 'P': case 'M':
             sc->p = q + 1;
@@ -985,6 +1007,8 @@ static void do_backslash(scanner *sc)
         return;
     }
     const char *spec = lookup_spec(name, len);
+    sc->cmd = name;
+    sc->cmdlen = len;
     args(sc, spec ? spec : "~");
 }
 
@@ -1049,22 +1073,11 @@ static void prescan(scanner *sc)
     }
 }
 
-void ts_scan(const char *src, size_t len, const ts_callbacks *cb)
+static void run(scanner *sc)
 {
-    scanner *sc = calloc(1, sizeof *sc);
-    if (!sc)
-        return;
-    sc->s = src;
-    sc->n = len;
-    sc->cb = cb;
-    sc->st[0].mode = M_PROSE;
-    sc->st[0].closer = C_BASE;
-
-    prescan(sc);
-
     while (sc->p < sc->n) {
         frame *t = top(sc);
-        unsigned char c = (unsigned char)src[sc->p];
+        unsigned char c = (unsigned char)sc->s[sc->p];
         const char *resume = NULL;
 
         if (t->mode == M_SKIP) {
@@ -1086,7 +1099,7 @@ void ts_scan(const char *src, size_t len, const ts_callbacks *cb)
 
         switch (c) {
         case '%':
-            while (sc->p < sc->n && src[sc->p] != '\n')
+            while (sc->p < sc->n && sc->s[sc->p] != '\n')
                 sc->p++;
             break;
         case '\\':
@@ -1117,7 +1130,7 @@ void ts_scan(const char *src, size_t len, const ts_callbacks *cb)
             }
             break;
         case '$':
-            if (sc->p + 1 < sc->n && src[sc->p + 1] == '$') {
+            if (sc->p + 1 < sc->n && sc->s[sc->p + 1] == '$') {
                 sc->p += 2;
                 if (!pop_to(sc, C_DDOLLAR, NULL))
                     push(sc, M_MATH, C_DDOLLAR, NULL, 0, NULL);
@@ -1131,22 +1144,132 @@ void ts_scan(const char *src, size_t len, const ts_callbacks *cb)
             if (is_digit(c)) {
                 /* 12pt, 2cm, 3rd: numbers and anything glued to them */
                 while (sc->p < sc->n &&
-                       (is_alpha((unsigned char)src[sc->p]) ||
-                        is_digit((unsigned char)src[sc->p])))
+                       (is_alpha((unsigned char)sc->s[sc->p]) ||
+                        is_digit((unsigned char)sc->s[sc->p])))
                     sc->p++;
-            } else if (letter_at(src, sc->n, sc->p)) {
+            } else if (letter_at(sc->s, sc->n, sc->p)) {
                 if (t->mode == M_PROSE)
                     read_word(sc);
                 else
                     skip_word(sc);
             } else if (c >= 0x80) {
                 unsigned cp;
-                sc->p += utf8_decode(src, sc->n, sc->p, &cp);
+                sc->p += utf8_decode(sc->s, sc->n, sc->p, &cp);
             } else {
                 sc->p++;
             }
         }
     }
+}
+
+/* Scan [a, b) as a separate piece of text in the given mode. */
+static void sub_scan(scanner *sc, size_t a, size_t b, mode m)
+{
+    scanner *sub = calloc(1, sizeof *sub);
+    if (!sub)
+        return;
+    sub->s = sc->s;
+    sub->n = b;
+    sub->p = a;
+    sub->cb = sc->cb;
+    sub->st[0].mode = m;
+    sub->st[0].closer = C_BASE;
+    sub->at_letter = sc->at_letter;
+    sub->expl = sc->expl;
+    run(sub);
+    free(sub);
+}
+
+/* Keys whose values are text that ends up in the document or the PDF. */
+static const char *const prose_keys[] = {
+    "pdftitle", "pdfauthor", "pdfsubject", "pdfkeywords", NULL
+};
+
+static int valid_key(const char *s, size_t len)
+{
+    if (!len || len > 64 || !is_alpha((unsigned char)s[0]))
+        return 0;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (!(is_alpha(c) || is_digit(c) || c == '-' || c == ' '))
+            return 0;
+    }
+    return 1;
+}
+
+/* Handle the content [a, b) of a key=value list such as the argument of
+ * \hypersetup. Each key is reported; each value is scanned as prose for
+ * text keys like pdftitle and as key=value material otherwise. */
+static void option_list(scanner *sc, size_t a, size_t b)
+{
+    const char *s = sc->s;
+    size_t i = a;
+    while (i < b) {
+        size_t j, eq = b;
+        int d = 0;
+        for (j = i; j < b; j++) {
+            char c = s[j];
+            if (c == '\\') { j++; continue; }
+            if (c == '%') {
+                while (j < b && s[j] != '\n')
+                    j++;
+                continue;
+            }
+            if (c == '{') d++;
+            else if (c == '}') d--;
+            else if (d == 0 && c == ',') break;
+            else if (d == 0 && c == '=' && eq == b) eq = j;
+        }
+        if (j > b)
+            j = b;
+        size_t ka = i, kb = eq < j ? eq : j;
+        /* skip comment lines before the key */
+        for (;;) {
+            trim(s, &ka, &kb);
+            if (ka < kb && s[ka] == '%') {
+                while (ka < kb && s[ka] != '\n')
+                    ka++;
+                continue;
+            }
+            break;
+        }
+        int prose = 0;
+        if (valid_key(s + ka, kb - ka)) {
+            if (sc->cb && sc->cb->option)
+                sc->cb->option(sc->cb->ctx, sc->cmd, sc->cmdlen, s + ka, kb - ka,
+                               ka, kb);
+            for (const char *const *k = prose_keys; *k; k++)
+                if (strlen(*k) == kb - ka && memcmp(*k, s + ka, kb - ka) == 0)
+                    prose = 1;
+        }
+        if (eq < j) {
+            size_t va = eq + 1, vb = j;
+            trim(s, &va, &vb);
+            if (va < vb && s[va] == '{' && match_brace(s, vb, va) == vb - 1) {
+                va++;
+                vb--;
+            }
+            if (va < vb)
+                sub_scan(sc, va, vb, prose ? M_PROSE : M_KV);
+        }
+        i = j + 1;
+    }
+}
+
+void ts_scan(const char *src, size_t len, const ts_callbacks *cb)
+{
+    scanner *sc = calloc(1, sizeof *sc);
+    if (!sc)
+        return;
+    sc->s = src;
+    sc->n = len;
+    sc->cb = cb;
+    sc->st[0].mode = M_PROSE;
+    sc->st[0].closer = C_BASE;
+
+    prescan(sc);
+
+    run(sc);
     free(sc);
 }
 
@@ -1174,6 +1297,121 @@ static const char *const class_loaders[] = {
 static const char *const input_commands[] = {
     "input", "@input", "@@input", "InputIfFileExists", "@input@", NULL
 };
+
+/* Commands that define option keys, and which brace argument (0-based,
+ * ignoring [..] arguments) holds the key or a comma separated list of keys.
+ * A negative index means the argument holds expl3/l3keys style
+ * "key .property = value" items. */
+typedef struct key_definer {
+    const char *name;
+    int arg;
+} key_definer;
+
+static const key_definer key_definers[] = {
+    {"define@key", 1}, {"define@cmdkey", 1}, {"define@cmdkeys", 1},
+    {"define@choicekey", 1}, {"define@boolkey", 1}, {"define@boolkeys", 1},
+    {"enitkv@key", 1}, {"lst@Key", 0}, {"DeclareCaptionOption", 0},
+    {"DeclareStringOption", 0}, {"DeclareBoolOption", 0},
+    {"DeclareComplementaryOption", 0}, {"DeclareVoidOption", 0},
+    {"DeclareOption", 0}, {"Hy@DefNameKey", 0},
+    {"keys_define:nn", -2}, {"keys_define:nx", -2}, {"keys_define:ne", -2},
+    {"DeclareKeys", -1},
+    {NULL, 0}
+};
+
+static void define_key_list(const ts_callbacks *cb, const char *s, size_t a, size_t b)
+{
+    size_t i = a;
+    while (i < b) {
+        size_t j = i;
+        while (j < b && s[j] != ',')
+            j++;
+        size_t x = i, y = j;
+        trim(s, &x, &y);
+        if (valid_key(s + x, y - x))
+            define(cb, TS_DEF_KEY, s + x, y - x);
+        i = j + 1;
+    }
+}
+
+/* l3keys items: "key .code:n = {...}, other-key .bool_set:N = \l_x". */
+static void define_l3keys(const ts_callbacks *cb, const char *s, size_t a, size_t b)
+{
+    size_t i = a;
+    while (i < b) {
+        size_t j = i, dot = b;
+        int d = 0;
+        for (; j < b; j++) {
+            char c = s[j];
+            if (c == '\\') { j++; continue; }
+            if (c == '%') {
+                while (j < b && s[j] != '\n')
+                    j++;
+                continue;
+            }
+            if (c == '{') d++;
+            else if (c == '}') d--;
+            else if (d == 0 && c == ',') break;
+            else if (d == 0 && c == '.' && dot == b) dot = j;
+        }
+        if (dot < j) {
+            size_t x = i, y = dot;
+            trim(s, &x, &y);
+            if (valid_key(s + x, y - x))
+                define(cb, TS_DEF_KEY, s + x, y - x);
+        }
+        i = j + 1;
+    }
+}
+
+/* Find the n-th (0-based) brace argument after q, skipping *, + and [..]
+ * arguments. Sets [*a, *b) to its content. */
+static int nth_brace_arg(const char *s, size_t len, size_t q, int n, size_t *a, size_t *b)
+{
+    for (int k = 0;; k++) {
+        for (;;) {
+            while (q < len && (s[q] == ' ' || s[q] == '\t' || s[q] == '\n' ||
+                               s[q] == '\r' || s[q] == '*' || s[q] == '+'))
+                q++;
+            if (q < len && s[q] == '[') {
+                q = match_bracket(s, len, q) + 1;
+                continue;
+            }
+            break;
+        }
+        if (q >= len || s[q] != '{')
+            return 0;
+        size_t close = match_brace(s, len, q);
+        if (close >= len)
+            return 0;
+        if (k == n) {
+            *a = q + 1;
+            *b = close;
+            return 1;
+        }
+        q = close + 1;
+    }
+}
+
+/* keyval stores key "k" of family "f" as the macro \KV@f@k, and enumitem
+ * as \enitkv@enumitem@k. Report the key if name is such a macro. */
+static int key_macro(const ts_callbacks *cb, const char *name, size_t nl)
+{
+    const char *key = NULL;
+    if (nl > 4 && memcmp(name, "KV@", 3) == 0) {
+        const char *at = memchr(name + 3, '@', nl - 3);
+        if (at)
+            key = at + 1;
+    } else if (nl > 16 && memcmp(name, "enitkv@enumitem@", 16) == 0) {
+        key = name + 16;
+    }
+    if (!key)
+        return 0;
+    size_t kl = (size_t)(name + nl - key);
+    if (valid_key(key, kl))
+        define(cb, TS_DEF_KEY, key, kl);
+    return 1;
+}
 
 static int all_letters(const char *s, size_t len)
 {
@@ -1237,6 +1475,22 @@ void ts_scan_package(const char *src, size_t len, const ts_callbacks *cb,
         if (all_letters(name, nl))
             define(cb, TS_DEF_COMMAND, name, nl);
 
+        key_macro(cb, name, nl);
+
+        for (const key_definer *kd = key_definers; kd->name; kd++) {
+            if (!name_is(name, nl, kd->name))
+                continue;
+            int which = kd->arg < 0 ? -kd->arg - 1 : kd->arg;
+            size_t a, b;
+            if (nth_brace_arg(src, len, p, which, &a, &b)) {
+                if (kd->arg < 0)
+                    define_l3keys(cb, src, a, b);
+                else
+                    define_key_list(cb, src, a, b);
+            }
+            break;
+        }
+
         if (name_in(name, nl, env_definers)) {
             size_t q = to_brace_arg(sc, p);
             if (q < len) {
@@ -1290,6 +1544,7 @@ void ts_scan_package(const char *src, size_t len, const ts_callbacks *cb,
                 !memchr(src + a, '#', b - a))
                 input(cb->ctx, src + a, b - a);
         } else if (name_is(name, nl, "csname") || name_is(name, nl, "@namedef")) {
+            /* \@namedef{KV@f@k} and \csname KV@f@k\endcsname also define keys */
             size_t a = p, b;
             if (name_is(name, nl, "@namedef")) {
                 if (a >= len || src[a] != '{')
@@ -1300,7 +1555,9 @@ void ts_scan_package(const char *src, size_t len, const ts_callbacks *cb,
                 b = find_sub(src, len, a, "\\endcsname", 10);
             }
             trim(src, &a, &b);
-            if (b > a && b <= len) {
+            if (b > a && b <= len && key_macro(cb, src + a, b - a)) {
+                /* a key's macro, reported by key_macro */
+            } else if (b > a && b <= len) {
                 if (all_letters(src + a, b - a))
                     define(cb, TS_DEF_COMMAND, src + a, b - a);
                 else if (valid_env_name(src + a, b - a))

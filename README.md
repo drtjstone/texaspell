@@ -10,6 +10,10 @@ uses the standard macOS spelling panel), and it:
   flagged, and right-clicking offers `\section`, `\textbf` and `\alpha`;
 - checks **environment names**: `\begin{itemzie}` is flagged and `itemize`
   is suggested;
+- checks **option names** in `\hypersetup`, `\geometry`, `\captionsetup`,
+  `\lstset`, `\sisetup` and `\setlist`: `pdftitel` is flagged and `pdftitle`
+  suggested. The text of `pdftitle`, `pdfauthor`, `pdfsubject` and
+  `pdfkeywords` is spell-checked as prose;
 - leaves alone what isn't prose: maths, labels, citation keys, file names,
   URLs, verbatim and code listings, comments, `key=value` options, column
   specifications, TikZ code, and so on.
@@ -80,7 +84,7 @@ TeXAspell keeps plain-text files in
 |---|---|
 | `config.txt` | Dictionary (`en_GB-ise`, `en_GB-ize` or `en_GB`), whether to skip ALL-CAPS acronyms, and other options. |
 | `packages.txt` | Packages whose commands are always accepted. TeXAspell adds a package here the first time it sees you load it. |
-| `commands.txt` | Your own commands (`\mymacro`) and environments (`keypoint`). **Learn Spelling** on a command adds it here. |
+| `commands.txt` | Your own commands (`\mymacro`), environments (`keypoint`) and option names (`myoption=`). **Learn Spelling** on a flagged command, environment or option adds it here. |
 | `auto-commands.txt` | Commands and environments TeXAspell has seen defined in your documents. Safe to edit or delete. |
 | `words.txt` | Your own words. **Learn Spelling** adds them here. |
 
@@ -126,6 +130,12 @@ chapter1.tex:19:4: spelling: recieve -> receive, receiver, relieve
 - **Generous command list.** A command counts as known if it appears anywhere
   in the files of a loaded package. This occasionally accepts an internal
   command you would never type, but it reliably catches typos.
+- **Option names** are read from the package source in the same way. A few
+  packages generate some option names in ways that can't be read directly.
+  TeXAspell knows about the ones in hyperref and listings. If a valid option
+  is flagged, use **Learn Spelling**. Options are only checked once their
+  package is loaded, and only inside the six setup commands listed above.
+  `\usepackage[...]` options aren't checked.
 - **Single letters** and words in ALL CAPITALS (with an optional final *s*,
   as in *MPs*) are ignored. You can change both in `config.txt`.
 

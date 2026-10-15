@@ -30,8 +30,10 @@ struct texaspell {
     strset words;        /* words.txt                                   */
     strset user_cmds;    /* commands.txt and auto-commands.txt          */
     strset user_envs;
+    strset user_keys;
     strset packages;     /* names listed in packages.txt                */
     strset recent_envs;  /* environment names flagged recently          */
+    strset recent_keys;  /* option keys flagged recently                */
 };
 
 static const char default_config[] =
@@ -76,8 +78,9 @@ static const char default_packages[] =
 
 static const char default_commands[] =
     "# Your own LaTeX commands and environments that TeXAspell should accept.\n"
-    "# One per line: \\command for a command, a bare name for an environment.\n"
-    "# \"Learn Spelling\" on a flagged command or environment adds it here.\n";
+    "# One per line: \\command for a command, a bare name for an environment,\n"
+    "# name= for an option key (as in \\hypersetup{name=...}).\n"
+    "# \"Learn Spelling\" on a flagged command, environment or key adds it here.\n";
 
 static const char default_auto_commands[] =
     "# Commands and environments TeXAspell has seen defined in your documents\n"
@@ -235,9 +238,12 @@ static void word_line(texaspell *ta, char *line)
 
 static void command_line(texaspell *ta, char *line)
 {
+    size_t l = strlen(line);
     if (line[0] == '\\') {
         if (line[1])
             strset_add(&ta->user_cmds, line + 1);
+    } else if (l > 1 && line[l - 1] == '=') {
+        strset_addn(&ta->user_keys, line, l - 1);
     } else {
         strset_add(&ta->user_envs, line);
     }
@@ -253,6 +259,7 @@ static void load_user_lists(texaspell *ta)
     strset_free(&ta->words);
     strset_free(&ta->user_cmds);
     strset_free(&ta->user_envs);
+    strset_free(&ta->user_keys);
     each_line(ta, "words.txt", word_line);
     each_line(ta, "commands.txt", command_line);
     each_line(ta, "auto-commands.txt", command_line);
@@ -340,8 +347,10 @@ texaspell *ta_open(const char *home, char *err, size_t errlen)
     strset_init(&ta->words);
     strset_init(&ta->user_cmds);
     strset_init(&ta->user_envs);
+    strset_init(&ta->user_keys);
     strset_init(&ta->packages);
     strset_init(&ta->recent_envs);
+    strset_init(&ta->recent_keys);
 
     if (mkdirs(ta->home) == 0) {
         ensure_file(ta->home, "config.txt", default_config);
@@ -389,8 +398,10 @@ void ta_close(texaspell *ta)
     strset_free(&ta->words);
     strset_free(&ta->user_cmds);
     strset_free(&ta->user_envs);
+    strset_free(&ta->user_keys);
     strset_free(&ta->packages);
     strset_free(&ta->recent_envs);
+    strset_free(&ta->recent_keys);
     free(ta);
 }
 
@@ -403,10 +414,13 @@ const char *ta_warning(const texaspell *ta) { return ta->warning[0] ? ta->warnin
  * Checking
  * ---------------------------------------------------------------------- */
 
+#define TOK_OPTION 100 /* alongside the ts_kind values */
+
 typedef struct tok {
-    ts_kind kind;
+    int kind;
     size_t start, end;
     size_t toff, tlen;
+    size_t coff, clen; /* TOK_OPTION: the command it was given to */
 } tok;
 
 typedef struct collect {
@@ -419,10 +433,9 @@ typedef struct collect {
     size_t nfiles, fcap;
 } collect;
 
-static void on_token(void *ctx, ts_kind kind, const char *t, size_t len,
-                     size_t start, size_t end)
+static void add_token(collect *c, int kind, const char *t, size_t len,
+                      const char *cmd, size_t clen, size_t start, size_t end)
 {
-    collect *c = ctx;
     if (c->n == c->cap) {
         size_t ncap = c->cap ? c->cap * 2 : 256;
         tok *nv = realloc(c->v, ncap * sizeof *nv);
@@ -431,9 +444,9 @@ static void on_token(void *ctx, ts_kind kind, const char *t, size_t len,
         c->v = nv;
         c->cap = ncap;
     }
-    if (c->tl + len > c->tcap) {
+    if (c->tl + len + clen > c->tcap) {
         size_t ncap = c->tcap ? c->tcap * 2 : 4096;
-        while (ncap < c->tl + len)
+        while (ncap < c->tl + len + clen)
             ncap *= 2;
         char *nt = realloc(c->text, ncap);
         if (!nt)
@@ -442,8 +455,22 @@ static void on_token(void *ctx, ts_kind kind, const char *t, size_t len,
         c->tcap = ncap;
     }
     memcpy(c->text + c->tl, t, len);
-    c->v[c->n++] = (tok){kind, start, end, c->tl, len};
-    c->tl += len;
+    if (clen)
+        memcpy(c->text + c->tl + len, cmd, clen);
+    c->v[c->n++] = (tok){kind, start, end, c->tl, len, c->tl + len, clen};
+    c->tl += len + clen;
+}
+
+static void on_token(void *ctx, ts_kind kind, const char *t, size_t len,
+                     size_t start, size_t end)
+{
+    add_token(ctx, (int)kind, t, len, NULL, 0, start, end);
+}
+
+static void on_option(void *ctx, const char *cmd, size_t cmdlen,
+                      const char *key, size_t keylen, size_t start, size_t end)
+{
+    add_token(ctx, TOK_OPTION, key, keylen, cmd, cmdlen, start, end);
 }
 
 static void add_user_name(texaspell *ta, int env, const char *name, size_t len)
@@ -488,6 +515,8 @@ static void on_doc_define(void *ctx, ts_def_kind kind, const char *name, size_t 
         }
         break;
     }
+    case TS_DEF_KEY:
+        break;
     case TS_DEF_PACKAGE:
     case TS_DEF_CLASS: {
         if (len > 200)
@@ -585,6 +614,32 @@ static int command_ok(texaspell *ta, const char *name, size_t len)
            strset_hasn(&ta->user_cmds, name, len);
 }
 
+/* The package whose keys a setup command takes. Keys are only checked when
+ * that package has been read, so a document that never loads it is not
+ * buried in complaints. */
+static const char *key_package(const char *cmd, size_t len)
+{
+    static const struct { const char *cmd, *pkg; } map[] = {
+        {"hypersetup", "hyperref.sty"}, {"geometry", "geometry.sty"},
+        {"newgeometry", "geometry.sty"}, {"captionsetup", "caption.sty"},
+        {"lstset", "listings.sty"}, {"sisetup", "siunitx.sty"},
+        {"setlist", "enumitem.sty"},
+    };
+    for (size_t i = 0; i < sizeof map / sizeof map[0]; i++)
+        if (strlen(map[i].cmd) == len && memcmp(map[i].cmd, cmd, len) == 0)
+            return map[i].pkg;
+    return NULL;
+}
+
+static int option_ok(texaspell *ta, const char *cmd, size_t clen,
+                     const char *key, size_t len)
+{
+    const char *pkg = key_package(cmd, clen);
+    if (!pkg || !cmddb_loaded(&ta->db, pkg))
+        return 1;
+    return cmddb_has_key(&ta->db, key, len) || strset_hasn(&ta->user_keys, key, len);
+}
+
 static int environment_ok(texaspell *ta, const char *name, size_t len)
 {
     if (cmddb_has_environment(&ta->db, name, len) ||
@@ -600,7 +655,7 @@ size_t ta_check(texaspell *ta, const char *text, size_t len,
 {
     collect c = {0};
     c.ta = ta;
-    ts_callbacks cb = {&c, on_token, on_doc_define};
+    ts_callbacks cb = {&c, on_token, on_doc_define, on_option};
     ts_scan(text, len, &cb);
 
     load_document_packages(ta, &c);
@@ -628,6 +683,16 @@ size_t ta_check(texaspell *ta, const char *text, size_t len,
                 if (ta->recent_envs.count > MAX_RECENT_ENVS)
                     strset_free(&ta->recent_envs);
                 strset_addn(&ta->recent_envs, w, t->tlen);
+            }
+            break;
+        case TOK_OPTION:
+            ok = !ta->check_commands ||
+                 option_ok(ta, c.text + t->coff, t->clen, w, t->tlen);
+            kind = TA_OPTION;
+            if (!ok) {
+                if (ta->recent_keys.count > MAX_RECENT_ENVS)
+                    strset_free(&ta->recent_keys);
+                strset_addn(&ta->recent_keys, w, t->tlen);
             }
             break;
         }
@@ -662,7 +727,8 @@ size_t ta_check(texaspell *ta, const char *text, size_t len,
 size_t ta_suggest(texaspell *ta, const char *word, size_t len, char **out, size_t max)
 {
     if (len > 1 && word[0] == '\\') {
-        size_t n = cmddb_suggest(&ta->db, &ta->user_cmds, 0, word + 1, len - 1, out, max);
+        size_t n = cmddb_suggest(&ta->db, &ta->user_cmds, CMDDB_COMMANDS,
+                                 word + 1, len - 1, out, max);
         for (size_t i = 0; i < n; i++) {
             size_t l = strlen(out[i]);
             char *s = malloc(l + 2);
@@ -676,7 +742,11 @@ size_t ta_suggest(texaspell *ta, const char *word, size_t len, char **out, size_
         return n;
     }
     if (strset_hasn(&ta->recent_envs, word, len))
-        return cmddb_suggest(&ta->db, &ta->user_envs, 1, word, len, out, max);
+        return cmddb_suggest(&ta->db, &ta->user_envs, CMDDB_ENVIRONMENTS,
+                             word, len, out, max);
+    if (strset_hasn(&ta->recent_keys, word, len))
+        return cmddb_suggest(&ta->db, &ta->user_keys, CMDDB_KEYS,
+                             word, len, out, max);
     return speller_suggest(ta->sp, word, len, out, max);
 }
 
@@ -690,6 +760,12 @@ void ta_learn(texaspell *ta, const char *word, size_t len)
     } else if (strset_hasn(&ta->recent_envs, word, len)) {
         strset_addn(&ta->user_envs, word, len);
         append_line(ta, "commands.txt", word, len);
+    } else if (strset_hasn(&ta->recent_keys, word, len)) {
+        char line[260];
+        strset_addn(&ta->user_keys, word, len);
+        memcpy(line, word, len);
+        line[len] = '=';
+        append_line(ta, "commands.txt", line, len + 1);
     } else {
         strset_addn(&ta->words, word, len);
         append_line(ta, "words.txt", word, len);
@@ -703,6 +779,10 @@ void ta_forget(texaspell *ta, const char *word, size_t len)
     remove_line(ta, "words.txt", word, len);
     remove_line(ta, "commands.txt", word, len);
     remove_line(ta, "auto-commands.txt", word, len);
+    char line[260];
+    memcpy(line, word, len);
+    line[len] = '=';
+    remove_line(ta, "commands.txt", line, len + 1);
     load_user_lists(ta);
 }
 

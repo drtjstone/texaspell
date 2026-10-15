@@ -48,5 +48,7 @@ check "package remembered across runs" '\toprule' 0
 check "-ise spelling accepted" 'organise' 0
 check "-ize spelling flagged by en_GB-ise" 'organize' 1
 check "acronyms skipped" 'NHS MPs HMT' 0
+check "unknown hyperref option flagged" '\usepackage{hyperref}\hypersetup{pdftitel={A}}' 1
+check "pdftitle text is spell-checked" '\usepackage{hyperref}\hypersetup{pdftitle={Finanse}}' 1
 
 exit $fail

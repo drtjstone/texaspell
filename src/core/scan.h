@@ -29,7 +29,8 @@ typedef enum {
     TS_DEF_ENVIRONMENT, /* \newenvironment{foo}, \newtheorem{foo}, ...      */
     TS_DEF_COUNTER,     /* \newcounter{foo}  (implies \thefoo)              */
     TS_DEF_PACKAGE,     /* \usepackage{foo}, \RequirePackage{foo}           */
-    TS_DEF_CLASS        /* \documentclass{foo}, \LoadClass{foo}             */
+    TS_DEF_CLASS,       /* \documentclass{foo}, \LoadClass{foo}             */
+    TS_DEF_KEY          /* an option key: \define@key{Hyp}{pdftitle}       */
 } ts_def_kind;
 
 typedef struct ts_callbacks {
@@ -39,13 +40,18 @@ typedef struct ts_callbacks {
     void (*token)(void *ctx, ts_kind kind, const char *text, size_t len,
                   size_t start, size_t end);
     void (*define)(void *ctx, ts_def_kind kind, const char *name, size_t len);
+    /* An option key in a key=value list such as \hypersetup{pdftitle=..}.
+     * cmd is the command it was given to (without backslash). */
+    void (*option)(void *ctx, const char *cmd, size_t cmdlen,
+                   const char *key, size_t keylen, size_t start, size_t end);
 } ts_callbacks;
 
 void ts_scan(const char *src, size_t len, const ts_callbacks *cb);
 
 /* Scan a package/class/kernel file (.sty, .cls, .ltx, ...) for the names it
  * makes available. Reports every control word made only of letters as
- * TS_DEF_COMMAND, environment names as TS_DEF_ENVIRONMENT, and files it
+ * TS_DEF_COMMAND, environment names as TS_DEF_ENVIRONMENT, option keys as
+ * TS_DEF_KEY, and files it
  * loads as TS_DEF_PACKAGE / TS_DEF_CLASS. Files read with \input are
  * reported through `input` (name as written, may lack an extension). */
 void ts_scan_package(const char *src, size_t len, const ts_callbacks *cb,
