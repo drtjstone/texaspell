@@ -19,6 +19,11 @@ fail=0
 for tex in "$here"/fixtures/*.tex; do
     expected="${tex%.tex}.expected"
     name=$(basename "$tex")
+    if [ "$name" = languages.tex ] &&
+       ! { aspell dicts | grep -qx de_DE && aspell dicts | grep -qx fr_FR; }; then
+        echo "skip  $name (needs the de_DE and fr_FR aspell dictionaries)"
+        continue
+    fi
     actual=$(cd "$here/fixtures" && "$bin" "$name")
     if [ "$actual" = "$(cat "$expected")" ]; then
         echo "ok    $name"

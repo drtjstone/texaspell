@@ -344,6 +344,8 @@ static void on_define(void *ctx, ts_def_kind kind, const char *name, size_t len)
     case TS_DEF_KEY:
         strset_addn(&lc->db->keys, name, len);
         break;
+    case TS_DEF_MAIN_LANGUAGE:
+        break;
     }
 }
 

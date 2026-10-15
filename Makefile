@@ -28,7 +28,7 @@ LDFLAGS  += -L$(ASPELL_PREFIX)/lib -Wl,-rpath,$(ASPELL_PREFIX)/lib
 endif
 
 CORE_SRC = src/core/strset.c src/core/scan.c src/core/cmddb.c \
-           src/core/speller.c src/core/checker.c
+           src/core/speller.c src/core/checker.c src/core/languages.c
 CORE_HDR = $(wildcard src/core/*.h)
 
 LANGUAGES ?= en_GB

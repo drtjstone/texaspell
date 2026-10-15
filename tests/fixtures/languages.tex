@@ -1,0 +1,15 @@
+\documentclass{article}
+\usepackage[german,french,british]{babel}
+\begin{document}
+The colour of the organisation is grey. A mispelt word.
+\begin{otherlanguage}{german}
+Die Farbe der Organisation ist grau. Ein falsh geschriebenes Wort.
+\end{otherlanguage}
+As the French say, \foreignlanguage{french}{c'est la vie et le fromaje}.
+\selectlanguage{german}
+Jetzt ist alles Deutsch und colour ist falsch.
+\selectlanguage{british}
+Back to Britsh. \foreignlanguage{klingon}{Qapla batlh} is skipped.
+\end{document}
+% polyglossia
+\textfrench{Bonjour le mondde.} \begin{german}Guten Tagg.\end{german}

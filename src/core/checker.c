@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 
 #include "cmddb.h"
+#include "languages.h"
 #include "scan.h"
 #include "speller.h"
 #include "strset.h"
@@ -22,7 +23,16 @@ typedef struct langdict {
     char lang[32];
     char dict[128];
     speller *sp;    /* opened on first use */
+    int failed;     /* the dictionary could not be opened */
 } langdict;
+
+/* Flagged words and the dictionary that flagged them, so suggestions come
+ * from the right language. */
+#define RECENT_WORDS 256
+typedef struct recent_word {
+    char word[64];
+    speller *sp;
+} recent_word;
 
 struct texaspell {
     char home[1024];
@@ -46,6 +56,9 @@ struct texaspell {
     strset packages;     /* names listed in packages.txt                */
     strset recent_envs;  /* environment names flagged recently          */
     strset recent_keys;  /* option keys flagged recently                */
+    char doc_lang[32];   /* main language of the document (babel name)   */
+    recent_word recent_words[RECENT_WORDS];
+    int recent_next;
 };
 
 static const char default_config[] =
@@ -433,12 +446,12 @@ void ta_close(texaspell *ta)
 const char *ta_home(const texaspell *ta) { return ta->home; }
 const char *ta_dictionary(const texaspell *ta) { return ta->dictionary; }
 
-int ta_use_language(texaspell *ta, const char *lang, char *err, size_t errlen)
+/* The speller for an aspell language code; NULL if its dictionary cannot be
+ * opened (the failure is remembered, and described in err). */
+static speller *speller_for_code(texaspell *ta, const char *lang, char *err, size_t errlen)
 {
-    if (!lang || !*lang || strcmp(lang, DEFAULT_LANGUAGE) == 0) {
-        ta->sp = ta->default_sp;
-        return 1;
-    }
+    if (!lang || !*lang || strcmp(lang, DEFAULT_LANGUAGE) == 0)
+        return ta->default_sp;
     langdict *l = NULL;
     for (int i = 0; i < ta->nlangs; i++)
         if (strcmp(ta->langs[i].lang, lang) == 0)
@@ -446,25 +459,53 @@ int ta_use_language(texaspell *ta, const char *lang, char *err, size_t errlen)
     if (!l) {
         if (ta->nlangs >= MAX_LANGS) {
             if (err) snprintf(err, errlen, "too many languages");
-            return 0;
+            return NULL;
         }
         l = &ta->langs[ta->nlangs++];
         snprintf(l->lang, sizeof l->lang, "%s", lang);
         snprintf(l->dict, sizeof l->dict, "%s", lang);
         l->sp = NULL;
+        l->failed = 0;
     }
-    if (!l->sp) {
+    if (!l->sp && !l->failed) {
         char aerr[512] = "";
         l->sp = speller_open(l->dict, aerr, sizeof aerr);
         if (!l->sp) {
+            l->failed = 1;
             if (err)
                 snprintf(err, errlen, "cannot open aspell dictionary \"%s\" for %s (%s)",
                          l->dict, lang, aerr);
-            return 0;
         }
+    } else if (!l->sp && err) {
+        snprintf(err, errlen, "no aspell dictionary \"%s\" for %s", l->dict, lang);
     }
-    ta->sp = l->sp;
+    return l->sp;
+}
+
+int ta_use_language(texaspell *ta, const char *lang, char *err, size_t errlen)
+{
+    speller *sp = speller_for_code(ta, lang, err, errlen);
+    if (!sp)
+        return 0;
+    ta->sp = sp;
     return 1;
+}
+
+/* The speller for words in a babel/polyglossia language ("" = the
+ * document's main language, or failing that the chosen default). NULL means
+ * do not check: an unknown language, or no dictionary installed. */
+static speller *speller_for_text(texaspell *ta, const char *babel_name)
+{
+    if (!*babel_name)
+        babel_name = ta->doc_lang;
+    if (!*babel_name)
+        return ta->sp;
+    const char *code = lang_code(babel_name, strlen(babel_name));
+    if (!code)
+        return NULL;
+    if (!*code)
+        return ta->sp;
+    return speller_for_code(ta, code, NULL, 0);
 }
 int ta_commands_enabled(const texaspell *ta) { return ta->check_commands; }
 const char *ta_warning(const texaspell *ta) { return ta->warning[0] ? ta->warning : NULL; }
@@ -489,6 +530,9 @@ typedef struct collect {
     char *text;
     size_t tl, tcap;
     char **files;   /* packages/classes to load */
+    char main_lang[32];
+    int have_main_lang;
+    int saw_class;
     size_t nfiles, fcap;
 } collect;
 
@@ -576,8 +620,17 @@ static void on_doc_define(void *ctx, ts_def_kind kind, const char *name, size_t 
     }
     case TS_DEF_KEY:
         break;
+    case TS_DEF_MAIN_LANGUAGE:
+        if (len < sizeof c->main_lang) {
+            memcpy(c->main_lang, name, len);
+            c->main_lang[len] = '\0';
+            c->have_main_lang = 1;
+        }
+        break;
     case TS_DEF_PACKAGE:
     case TS_DEF_CLASS: {
+        if (kind == TS_DEF_CLASS)
+            c->saw_class = 1;
         if (len > 200)
             return;
         if (c->nfiles == c->fcap) {
@@ -649,8 +702,10 @@ static int is_allcaps(const char *w, size_t len)
     return upper >= 2;
 }
 
-static int word_ok(texaspell *ta, const char *w, size_t len)
+static int word_ok(texaspell *ta, speller *sp, const char *w, size_t len)
 {
+    if (!sp)
+        return 1;
     if ((int)utf8_chars(w, len) < ta->min_word_length)
         return 1;
     if (ta->skip_allcaps && is_allcaps(w, len))
@@ -664,7 +719,18 @@ static int word_ok(texaspell *ta, const char *w, size_t len)
         if (strset_hasn(&ta->words, buf, len))
             return 1;
     }
-    return speller_check(ta->sp, w, len);
+    return speller_check(sp, w, len);
+}
+
+static void remember_word(texaspell *ta, speller *sp, const char *w, size_t len)
+{
+    if (len >= sizeof ta->recent_words[0].word)
+        return;
+    recent_word *r = &ta->recent_words[ta->recent_next];
+    memcpy(r->word, w, len);
+    r->word[len] = '\0';
+    r->sp = sp;
+    ta->recent_next = (ta->recent_next + 1) % RECENT_WORDS;
 }
 
 static int command_ok(texaspell *ta, const char *name, size_t len)
@@ -719,6 +785,16 @@ size_t ta_check(texaspell *ta, const char *text, size_t len,
 
     load_document_packages(ta, &c);
 
+    /* The main language is remembered between checks, because the text
+     * checked while typing is usually a few lines without the preamble. A
+     * preamble without babel or polyglossia resets it. */
+    if (c.have_main_lang)
+        snprintf(ta->doc_lang, sizeof ta->doc_lang, "%s", c.main_lang);
+    else if (c.saw_class)
+        ta->doc_lang[0] = '\0';
+    char cur_lang[32] = "";
+    speller *sp = speller_for_text(ta, cur_lang);
+
     ta_issue *issues = NULL;
     size_t ni = 0, icap = 0;
     for (size_t i = 0; i < c.n; i++) {
@@ -727,9 +803,20 @@ size_t ta_check(texaspell *ta, const char *text, size_t len,
         int ok = 1;
         ta_kind kind = TA_WORD;
         switch (t->kind) {
+        case TS_LANGUAGE:
+            if (t->tlen < sizeof cur_lang) {
+                memcpy(cur_lang, w, t->tlen);
+                cur_lang[t->tlen] = '\0';
+            } else {
+                snprintf(cur_lang, sizeof cur_lang, "?");
+            }
+            sp = speller_for_text(ta, cur_lang);
+            continue;
         case TS_WORD:
-            ok = word_ok(ta, w, t->tlen);
+            ok = word_ok(ta, sp, w, t->tlen);
             kind = TA_WORD;
+            if (!ok)
+                remember_word(ta, sp, w, t->tlen);
             break;
         case TS_COMMAND:
             ok = !ta->check_commands || command_ok(ta, w, t->tlen);
@@ -806,7 +893,17 @@ size_t ta_suggest(texaspell *ta, const char *word, size_t len, char **out, size_
     if (strset_hasn(&ta->recent_keys, word, len))
         return cmddb_suggest(&ta->db, &ta->user_keys, CMDDB_KEYS,
                              word, len, out, max);
-    return speller_suggest(ta->sp, word, len, out, max);
+    speller *sp = ta->sp;
+    for (int i = 0; i < RECENT_WORDS; i++) {
+        /* newest first */
+        const recent_word *r =
+            &ta->recent_words[(ta->recent_next - 1 - i + 2 * RECENT_WORDS) % RECENT_WORDS];
+        if (r->sp && strlen(r->word) == len && memcmp(r->word, word, len) == 0) {
+            sp = r->sp;
+            break;
+        }
+    }
+    return speller_suggest(sp, word, len, out, max);
 }
 
 void ta_learn(texaspell *ta, const char *word, size_t len)

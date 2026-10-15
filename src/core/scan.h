@@ -21,7 +21,10 @@
 typedef enum {
     TS_WORD,        /* text: the word, normalised (\- removed, ’ -> ') */
     TS_COMMAND,     /* text: command name without the backslash        */
-    TS_ENVIRONMENT  /* text: environment name, e.g. "itemize"          */
+    TS_ENVIRONMENT, /* text: environment name, e.g. "itemize"          */
+    TS_LANGUAGE     /* the words that follow are in this language: a
+                     * babel/polyglossia name such as "ngerman", or ""
+                     * for the document's main language                */
 } ts_kind;
 
 typedef enum {
@@ -30,7 +33,8 @@ typedef enum {
     TS_DEF_COUNTER,     /* \newcounter{foo}  (implies \thefoo)              */
     TS_DEF_PACKAGE,     /* \usepackage{foo}, \RequirePackage{foo}           */
     TS_DEF_CLASS,       /* \documentclass{foo}, \LoadClass{foo}             */
-    TS_DEF_KEY          /* an option key: \define@key{Hyp}{pdftitle}       */
+    TS_DEF_KEY,         /* an option key: \define@key{Hyp}{pdftitle}       */
+    TS_DEF_MAIN_LANGUAGE /* \usepackage[british]{babel}: name = "british"   */
 } ts_def_kind;
 
 typedef struct ts_callbacks {

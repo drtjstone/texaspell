@@ -75,7 +75,40 @@ On a command such as `\mymacro`, it adds the command instead.
 If TeXShop has a setting of its own for skipping TeX commands when
 spell-checking, turn it off. Otherwise TeXAspell may never see the commands.
 
-## Other languages
+## Languages in your document
+
+TeXAspell follows the languages your document declares:
+
+- **Main language.** It's taken from babel's options, for example
+  `\usepackage[german,british]{babel}`. Following babel's own rule, that's
+  `main=...` if you give it, otherwise the last language listed. Languages
+  given as `\documentclass[british]{article}` options also count, as does
+  polyglossia's `\setmainlanguage[variant=british]{english}`. With no babel
+  or polyglossia, the main language is British English, or whichever
+  language you chose in the Spelling panel.
+- **Passages in other languages.** `\begin{otherlanguage}{german}`,
+  `\foreignlanguage{french}{...}` and `\selectlanguage{...}` are checked
+  with that language's dictionary, and so are polyglossia's
+  `\textgerman{...}` and `\begin{german}`. Suggestions come from the same
+  dictionary.
+- **No dictionary.** Text in a language with no aspell dictionary installed
+  (or a language TeXAspell doesn't recognise) is skipped rather than flagged.
+  To check French passages, for example, `aspell dicts` must list `fr_FR`.
+  You don't need to add French to `LANGUAGES` below.
+
+Two details:
+
+- babel's `english` follows your default (British unless you choose
+  otherwise), because many British documents use it. Use `british` or
+  `american` to be explicit.
+- While you type, macOS usually sends only the lines you're editing, without
+  the preamble. TeXAspell therefore remembers the main language from the
+  last preamble it saw and uses it until it sees a preamble that sets a
+  different one, or none. If you switch between documents in different
+  languages, use **Check Document Now** once on the new document so
+  TeXAspell sees its preamble.
+
+## Choosing a default language in the Spelling panel
 
 British English is the default, but the service can offer other languages
 as well. Each one appears as its own TeXAspell entry in the Spelling panel's

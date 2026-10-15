@@ -2,6 +2,8 @@
  * environment names. See scan.h. */
 #include "scan.h"
 
+#include "languages.h"
+
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +24,7 @@
  *   C      the name of a counter being defined
  *   G      a comma separated list of packages
  *   L      a document class
+ *   A      a language name; the next prose argument is in that language
  *   O      a key=value option list: keys are reported for checking, values
  *          of keys such as pdftitle are prose, other values key=value
  *   ~      optional key=value argument, only if '[' follows immediately
@@ -101,8 +104,11 @@ static spec_entry cmd_specs[] = {
     {"usepgfplotslibrary", "S"}, {"tikz", "kK"},
     {"geometry", "O"}, {"newgeometry", "O"}, {"captionsetup", "kO"},
     {"lstset", "O"}, {"sisetup", "O"}, {"setlist", "kO"},
-    {"selectlanguage", "S"}, {"foreignlanguage", "SS"}, {"setotherlanguage", "S"},
-    {"setmainlanguage", "kS"},
+    {"foreignlanguage", "kAP"}, {"textlang", "kAP"}, {"foreignquote", "AP"},
+    {"foreignblockquote", "AP"}, {"hyphenrules", "S"},
+    {"setotherlanguage", "kS"}, {"setotherlanguages", "S"},
+    {"setmainlanguage", "kS"}, {"setdefaultlanguage", "kS"},
+    {"babelprovide", "kS"}, {"babeltags", "S"},
     /* sectioning and other prose-carrying commands */
     {"part", "pP"}, {"chapter", "pP"}, {"section", "pP"}, {"subsection", "pP"},
     {"subsubsection", "pP"}, {"paragraph", "pP"}, {"subparagraph", "pP"},
@@ -128,7 +134,7 @@ static spec_entry cmd_specs[] = {
     {"DeclareAcronym", "SK"},
 };
 
-typedef enum { ENV_PLAIN, ENV_MATH, ENV_VERB, ENV_KV } env_kind;
+typedef enum { ENV_PLAIN, ENV_MATH, ENV_VERB, ENV_KV, ENV_LANG } env_kind;
 
 typedef struct env_entry {
     const char *name;
@@ -181,7 +187,7 @@ static const env_entry env_table[] = {
     {"table*", ENV_PLAIN, "k"}, {"frame", ENV_PLAIN, "kkP"},
     {"block", ENV_PLAIN, "P"}, {"alertblock", ENV_PLAIN, "P"},
     {"exampleblock", ENV_PLAIN, "P"}, {"column", ENV_PLAIN, "kK"},
-    {"otherlanguage", ENV_VERB, NULL}, {"otherlanguage*", ENV_VERB, NULL},
+    {"otherlanguage", ENV_LANG, NULL}, {"otherlanguage*", ENV_LANG, NULL},
 };
 
 static int spec_cmp(const void *a, const void *b)
@@ -230,11 +236,13 @@ typedef enum {
 
 #define MAX_DEPTH 256
 #define MAX_ENV 64
+#define MAX_LANG 32
 
 typedef struct frame {
     mode mode;
     closer closer;
     char env[MAX_ENV];
+    char lang[MAX_LANG]; /* language of the text ("" = main language) */
     const char *resume; /* remaining argument spec once this frame closes */
     const char *cmd;    /* ... and the command it belongs to */
     size_t cmdlen;
@@ -252,6 +260,11 @@ typedef struct scanner {
     int expl;
     const char *cmd;    /* command whose arguments are being read */
     size_t cmdlen;
+    char pending_lang[MAX_LANG]; /* language for the next frame pushed */
+    int have_pending_lang;
+    char announced[MAX_LANG];    /* last TS_LANGUAGE reported */
+    int have_announced;
+    size_t class_opts_a, class_opts_b; /* \documentclass[..] options */
 } scanner;
 
 static frame *top(scanner *sc) { return &sc->st[sc->depth]; }
@@ -263,7 +276,14 @@ static void push(scanner *sc, mode m, closer c, const char *env, size_t envlen,
         sc->overflow++;
         return;
     }
+    frame *parent = &sc->st[sc->depth];
     frame *f = &sc->st[++sc->depth];
+    if (sc->have_pending_lang) {
+        memcpy(f->lang, sc->pending_lang, MAX_LANG);
+        sc->have_pending_lang = 0;
+    } else {
+        memcpy(f->lang, parent->lang, MAX_LANG);
+    }
     f->mode = m;
     f->closer = c;
     f->resume = resume;
@@ -312,8 +332,25 @@ static int pop_to(scanner *sc, closer c, const char **resume)
 static void emit(scanner *sc, ts_kind k, const char *t, size_t len,
                  size_t start, size_t end)
 {
-    if (sc->cb && sc->cb->token)
-        sc->cb->token(sc->cb->ctx, k, t, len, start, end);
+    if (!sc->cb || !sc->cb->token)
+        return;
+    if (k == TS_WORD) {
+        const char *lang = sc->st[sc->depth].lang;
+        if (!sc->have_announced || strcmp(lang, sc->announced) != 0) {
+            sc->cb->token(sc->cb->ctx, TS_LANGUAGE, lang, strlen(lang), start, start);
+            memcpy(sc->announced, lang, MAX_LANG);
+            sc->have_announced = 1;
+        }
+    }
+    sc->cb->token(sc->cb->ctx, k, t, len, start, end);
+}
+
+static void set_lang(char *dst, const char *name, size_t len)
+{
+    if (len >= MAX_LANG)
+        len = 0; /* not a language name we could know */
+    memcpy(dst, name, len);
+    dst[len] = '\0';
 }
 
 static void define(const ts_callbacks *cb, ts_def_kind k, const char *name, size_t len)
@@ -687,6 +724,10 @@ static void name_arg(scanner *sc, char kind, size_t a, size_t b)
     case 'C':
         define(sc->cb, TS_DEF_COUNTER, s + a, b - a);
         break;
+    case 'A':
+        set_lang(sc->pending_lang, s + a, b - a);
+        sc->have_pending_lang = 1;
+        break;
     case 'G':
     case 'L': {
         size_t i = a;
@@ -748,8 +789,10 @@ static void args(scanner *sc, const char *spec)
             spec++;
             continue;
         }
-        if (c != '{')
+        if (c != '{') {
+            sc->have_pending_lang = 0;
             return; /* argument given as a single token, or absent */
+        }
         if (k == 'O') {
             size_t close = match_brace(sc->s, sc->n, q);
             option_list(sc, q + 1, close);
@@ -803,9 +846,28 @@ static void do_begin(scanner *sc)
         return;
     const char *name = sc->s + a;
     size_t len = b - a;
-    if (valid_env_name(name, len))
+    /* polyglossia: \begin{german} ... \end{german} */
+    int lang_env = lang_is_name(name, len) && !lookup_env(name, len);
+    if (valid_env_name(name, len) && !lang_env)
         emit(sc, TS_ENVIRONMENT, name, len, a, b);
     const env_entry *e = lookup_env(name, len);
+    if (lang_env) {
+        set_lang(sc->pending_lang, name, len);
+        sc->have_pending_lang = 1;
+        push(sc, M_PROSE, C_ENV, name, len, NULL);
+        args(sc, "k");
+        return;
+    }
+    if (e && e->kind == ENV_LANG) {
+        /* babel: \begin{otherlanguage}{german} */
+        size_t la, lb;
+        if (env_arg(sc, &la, &lb)) {
+            set_lang(sc->pending_lang, sc->s + la, lb - la);
+            sc->have_pending_lang = 1;
+        }
+        push(sc, M_PROSE, C_ENV, name, len, NULL);
+        return;
+    }
     if (e && e->kind == ENV_VERB) {
         char needle[MAX_ENV + 8];
         if (len < MAX_ENV) {
@@ -832,7 +894,8 @@ static void do_end(scanner *sc)
         return;
     const char *name = sc->s + a;
     size_t len = b - a;
-    if (valid_env_name(name, len))
+    int lang_env = lang_is_name(name, len) && !lookup_env(name, len);
+    if (valid_env_name(name, len) && !lang_env)
         emit(sc, TS_ENVIRONMENT, name, len, a, b);
     for (int i = sc->depth; i > 0; i--) {
         frame *f = &sc->st[i];
@@ -892,6 +955,126 @@ static void do_def(scanner *sc, const char *cmd, size_t cmdlen)
         }
     }
     sc->p = e;
+}
+
+/* A babel option naming a language: "british", "ngerman", "en-GB". */
+static int is_language_option(const char *s, size_t len)
+{
+    if (lang_is_name(s, len))
+        return 1;
+    return memchr(s, '-', len) && lang_code(s, len) != NULL;
+}
+
+/* The language named by a list of options [a, b): main=X if given,
+ * otherwise the last language listed (babel's rule). */
+static int main_from_options(const char *s, size_t a, size_t b,
+                             size_t *la, size_t *lb)
+{
+    int found = 0;
+    size_t i = a;
+    while (i < b) {
+        size_t j = i;
+        while (j < b && s[j] != ',')
+            j++;
+        size_t x = i, y = j;
+        trim(s, &x, &y);
+        if (y - x > 5 && memcmp(s + x, "main=", 5) == 0) {
+            x += 5;
+            trim(s, &x, &y);
+            *la = x;
+            *lb = y;
+            return 1;
+        }
+        if (y > x && is_language_option(s + x, y - x)) {
+            *la = x;
+            *lb = y;
+            found = 1;
+        }
+        i = j + 1;
+    }
+    return found;
+}
+
+/* Look ahead at the arguments of \documentclass, \usepackage{babel} or
+ * polyglossia's \setmainlanguage to find the document's main language.
+ * Does not move sc->p. */
+static void find_main_language(scanner *sc, const char *cmd, size_t cmdlen)
+{
+    const char *s = sc->s;
+    size_t n = sc->n, oa = 0, ob = 0;
+    size_t q = skip_ws(sc, sc->p);
+    if (q < n && s[q] == '[') {
+        size_t close = match_bracket(s, n, q);
+        if (close >= n)
+            return;
+        oa = q + 1;
+        ob = close;
+        q = skip_ws(sc, close + 1);
+    }
+    if (q >= n || s[q] != '{')
+        return;
+    size_t close = match_brace(s, n, q);
+    if (close >= n)
+        return;
+    size_t na = q + 1, nb = close;
+    trim(s, &na, &nb);
+
+    if (name_is(cmd, cmdlen, "documentclass")) {
+        sc->class_opts_a = oa;
+        sc->class_opts_b = ob;
+        return;
+    }
+    if (name_is(cmd, cmdlen, "setmainlanguage") ||
+        name_is(cmd, cmdlen, "setdefaultlanguage")) {
+        /* \setmainlanguage[variant=british]{english} */
+        size_t i = oa;
+        while (i < ob) {
+            size_t j = i;
+            while (j < ob && s[j] != ',')
+                j++;
+            size_t x = i, y = j;
+            trim(s, &x, &y);
+            if (y - x > 8 && memcmp(s + x, "variant=", 8) == 0) {
+                x += 8;
+                trim(s, &x, &y);
+                if (name_is(s + x, y - x, "uk") || name_is(s + x, y - x, "british")) {
+                    define(sc->cb, TS_DEF_MAIN_LANGUAGE, "british", 7);
+                    return;
+                }
+                if (name_is(s + x, y - x, "us") || name_is(s + x, y - x, "american")) {
+                    define(sc->cb, TS_DEF_MAIN_LANGUAGE, "american", 8);
+                    return;
+                }
+                if (lang_is_name(s + x, y - x)) {
+                    define(sc->cb, TS_DEF_MAIN_LANGUAGE, s + x, y - x);
+                    return;
+                }
+            }
+            i = j + 1;
+        }
+        define(sc->cb, TS_DEF_MAIN_LANGUAGE, s + na, nb - na);
+        return;
+    }
+
+    /* \usepackage[...]{babel} or a list including babel */
+    int babel = 0;
+    for (size_t i = na; i < nb;) {
+        size_t j = i;
+        while (j < nb && s[j] != ',')
+            j++;
+        size_t x = i, y = j;
+        trim(s, &x, &y);
+        if (name_is(s + x, y - x, "babel"))
+            babel = 1;
+        i = j + 1;
+    }
+    if (!babel)
+        return;
+    size_t la, lb;
+    if ((ob > oa && main_from_options(s, oa, ob, &la, &lb)) ||
+        (sc->class_opts_b > sc->class_opts_a &&
+         main_from_options(s, sc->class_opts_a, sc->class_opts_b, &la, &lb)))
+        define(sc->cb, TS_DEF_MAIN_LANGUAGE, s + la, lb - la);
 }
 
 static void do_backslash(scanner *sc)
@@ -964,8 +1147,34 @@ static void do_backslash(scanner *sc)
     int internal = memchr(name, '@', len) || memchr(name, '_', len) ||
                    memchr(name, ':', len);
     int defining = name_in(name, len, def_family);
-    if (!internal)
+    /* polyglossia defines \textgerman{..} etc. when the document runs */
+    int text_lang = len > 4 && memcmp(name, "text", 4) == 0 &&
+                    lang_is_name(name + 4, len - 4);
+    if (!internal && !text_lang)
         emit(sc, TS_COMMAND, name, len, p, e);
+
+    if (text_lang) {
+        set_lang(sc->pending_lang, name + 4, len - 4);
+        sc->have_pending_lang = 1;
+        /* the [options] argument must not take the language */
+        size_t q = skip_ws(sc, sc->p);
+        if (q < n && s[q] == '[')
+            sc->p = match_bracket(s, n, q) + 1;
+        sc->cmd = name;
+        sc->cmdlen = len;
+        args(sc, "P");
+        return;
+    }
+    if (name_is(name, len, "selectlanguage")) {
+        size_t a, b;
+        if (env_arg(sc, &a, &b))
+            set_lang(top(sc)->lang, s + a, b - a);
+        return;
+    }
+    if (name_is(name, len, "documentclass") || name_is(name, len, "usepackage") ||
+        name_is(name, len, "RequirePackage") || name_is(name, len, "setmainlanguage") ||
+        name_is(name, len, "setdefaultlanguage"))
+        find_main_language(sc, name, len);
 
     if (name_is(name, len, "begin")) { do_begin(sc); return; }
     if (name_is(name, len, "end")) { do_end(sc); return; }
@@ -1057,11 +1266,19 @@ static void prescan(scanner *sc)
             if (close >= n)
                 return;
             const env_entry *env = lookup_env(s + e + 1, close - e - 1);
-            if (env && (env->kind == ENV_MATH || env->kind == ENV_VERB)) {
+            if (env && (env->kind == ENV_MATH || env->kind == ENV_VERB ||
+                        env->kind == ENV_LANG)) {
                 if (is_begin)
                     return;
-                if (env->kind == ENV_MATH)
+                if (env->kind == ENV_MATH) {
                     push(sc, M_MATH, C_ENV, s + e + 1, close - e - 1, NULL);
+                } else if (env->kind == ENV_LANG) {
+                    /* inside another language, but we cannot tell which:
+                     * "?" is unknown, so its words are not checked */
+                    set_lang(sc->pending_lang, "?", 1);
+                    sc->have_pending_lang = 1;
+                    push(sc, M_PROSE, C_ENV, s + e + 1, close - e - 1, NULL);
+                }
                 else
                     sc->p = p;
                 return;
@@ -1173,10 +1390,15 @@ static void sub_scan(scanner *sc, size_t a, size_t b, mode m)
     sub->p = a;
     sub->cb = sc->cb;
     sub->st[0].mode = m;
+    memcpy(sub->st[0].lang, top(sc)->lang, MAX_LANG);
+    memcpy(sub->announced, sc->announced, MAX_LANG);
+    sub->have_announced = sc->have_announced;
     sub->st[0].closer = C_BASE;
     sub->at_letter = sc->at_letter;
     sub->expl = sc->expl;
     run(sub);
+    memcpy(sc->announced, sub->announced, MAX_LANG);
+    sc->have_announced = sub->have_announced;
     free(sub);
 }
 
