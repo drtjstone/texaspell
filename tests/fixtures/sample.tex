@@ -1,0 +1,62 @@
+\documentclass[11pt,a4paper]{report}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[british]{babel}
+\usepackage{booktabs}
+\newcommand{\org}{Cabinet Office}
+\newcommand\HMT{HM Treasury}
+\newenvironment{keypoint}{\begin{quote}}{\end{quote}}
+\newtheorem{proposition}{Proposition}
+
+\begin{document}
+\title{A Note on Public Finanse}
+\author{A.~N. Other}
+\maketitle
+
+\section{Introduction}\label{sec:intro}
+This paper sets out how the \org{} and \HMT{} organise the speling review.
+We recieve evidence from the NHS and other MPs' offices (see~\cite[p.~4]{smith2020}).
+It is \textbf{well-known} that the \emph{colour} of the paper doesn't matter.
+The figures in Table~\ref{tab:costs} are in \pounds{}m, e.g.\ 12.5\,bn.
+
+\sectoin{Method}
+\beign{itemize}
+  \item First point, with \txtbf{bold} text.
+  \item[Note:] A seccond point.
+\end{itemzie}
+
+The value is $x^2 + \alpha \cdot \frac{a}{b} = \alpah$ and
+\begin{equation}
+  \int_0^1 f(x)\,dx = \mathrm{cst} + \text{a constent term}
+\end{equation}
+\begin{align*}
+  ab &= cd \\
+  ef &= \sqrt{gh}
+\end{align*}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figs/costgraph.pdf}
+  \caption[Short captoin]{Costs by departmnt.}
+  \label{fig:costs}
+\end{figure}
+
+\begin{tabular}{lcr}
+  \toprule
+  Item & Cost & Notes \\
+  \midrule
+  Staf & 10 & none \\
+  \bottomrule
+\end{tabular}
+
+\begin{verbatim}
+  wrongg wordds in verbatim are ignored \notacommand
+\end{verbatim}
+Inline \verb|sdfsdf \badcmd| code and a URL \url{https://www.gov.uk/guidance}.
+% A comment with mispeled words is ignored \alsonotacommand
+Accented words like caf\'e and na\"ive and r\^ole are skipped.
+Hyphen\-ation and the curly apostrophe in don’t work.
+\begin{keypoint}Our own environmnt works.\end{keypoint}
+\begin{proposition}[Pythagoras] Triangles.\end{proposition}
+\end{document}

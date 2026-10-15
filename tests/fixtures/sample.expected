@@ -1,0 +1,16 @@
+sample.tex:13:25: spelling: Finanse
+sample.tex:18:60: spelling: speling
+sample.tex:19:4: spelling: recieve
+sample.tex:21:69: spelling: bn
+sample.tex:23:1: command: \sectoin
+sample.tex:24:1: command: \beign
+sample.tex:24:8: spelling: itemize
+sample.tex:25:27: command: \txtbf
+sample.tex:26:18: spelling: seccond
+sample.tex:27:6: environment: itemzie
+sample.tex:29:48: command: \alpah
+sample.tex:31:46: spelling: constent
+sample.tex:41:18: spelling: captoin
+sample.tex:41:36: spelling: departmnt
+sample.tex:49:3: spelling: Staf
+sample.tex:60:25: spelling: environmnt

@@ -1,0 +1,17 @@
+\usepackage{listings,minted}
+\makeatletter
+\def\my@cmd{x}\def\foo#1{#1}\let\bar\relax\newif\ifdraft
+\makeatother
+\foo{a} \bar \drafttrue \ifdraft yes\fi
+\newcounter{task}\thetask
+\DeclareMathOperator{\Tr}{Tr} $\Tr A$
+\NewDocumentCommand{\note}{m}{#1} \note{fine}
+\usepackage{tikz}
+\begin{tikzpicture}
+\draw[->, thick] (0,0) -- node[above] {lable} (1,1);
+\end{tikzpicture}
+\begin{itemize}[label=--]\item Okay\end{itemize}
+\\[2pt] \hspace*{1cm} \vspace{-3mm}
+\cmidrule(lr){2-3}
+\lstinline|xyzzy| \mintinline{python}{qwerty}
+Typo after all that: \undefinedthing and wrods.
