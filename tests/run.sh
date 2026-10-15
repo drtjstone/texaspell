@@ -48,6 +48,8 @@ check "package remembered across runs" '\toprule' 0
 check "-ise spelling accepted" 'organise' 0
 check "-ize spelling flagged by en_GB-ise" 'organize' 1
 check "acronyms skipped" 'NHS MPs HMT' 0
+printf 'colour' | "$bin" -L en_US >/dev/null
+if [ $? -eq 1 ]; then echo "ok    en_US dictionary selectable"; else echo "FAIL  en_US dictionary selectable"; fail=1; fi
 check "unknown hyperref option flagged" '\usepackage{hyperref}\hypersetup{pdftitel={A}}' 1
 check "pdftitle text is spell-checked" '\usepackage{hyperref}\hypersetup{pdftitle={Finanse}}' 1
 

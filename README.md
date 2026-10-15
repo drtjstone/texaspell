@@ -75,6 +75,28 @@ On a command such as `\mymacro`, it adds the command instead.
 If TeXShop has a setting of its own for skipping TeX commands when
 spell-checking, turn it off. Otherwise TeXAspell may never see the commands.
 
+## Other languages
+
+British English is the default, but the service can offer other languages
+as well. Each one appears as its own TeXAspell entry in the Spelling panel's
+language menu, and you switch between them there whenever you like. The LaTeX
+checking works the same in every language.
+
+Choose which languages to offer when you install:
+
+```sh
+brew install aspell        # includes many languages; check with: aspell dicts
+make install LANGUAGES="en_GB en_US de_DE fr_FR"
+```
+
+Each name must match an aspell dictionary (`aspell dicts` lists them). Any
+language without a dictionary is skipped with a warning. To change the
+list, run `make install` again with a new `LANGUAGES`. Your own word lists
+are shared by all languages.
+
+The command-line tool takes `--lang`, for example
+`texaspell --lang de_DE -s brief.tex`.
+
 ## Settings
 
 TeXAspell keeps plain-text files in
@@ -82,7 +104,7 @@ TeXAspell keeps plain-text files in
 
 | File | What it is |
 |---|---|
-| `config.txt` | Dictionary (`en_GB-ise`, `en_GB-ize` or `en_GB`), whether to skip ALL-CAPS acronyms, and other options. |
+| `config.txt` | British dictionary (`en_GB-ise`, `en_GB-ize` or `en_GB`), dictionaries for other languages, whether to skip ALL-CAPS acronyms, and other options. |
 | `packages.txt` | Packages whose commands are always accepted. TeXAspell adds a package here the first time it sees you load it. |
 | `commands.txt` | Your own commands (`\mymacro`), environments (`keypoint`) and option names (`myoption=`). **Learn Spelling** on a flagged command, environment or option adds it here. |
 | `auto-commands.txt` | Commands and environments TeXAspell has seen defined in your documents. Safe to edit or delete. |

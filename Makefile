@@ -5,6 +5,10 @@
 #   make service    (macOS) build build/TeXAspell.service
 #   make install    (macOS) install the service and the command-line tool
 #   make uninstall  (macOS) remove them
+#
+# Languages offered in the Spelling panel (each needs its aspell
+# dictionary, see `aspell dicts`); the first is the default:
+#   make install LANGUAGES="en_GB en_US de_DE"
 
 CC      ?= cc
 CFLAGS  ?= -O2 -g
@@ -27,11 +31,14 @@ CORE_SRC = src/core/strset.c src/core/scan.c src/core/cmddb.c \
            src/core/speller.c src/core/checker.c
 CORE_HDR = $(wildcard src/core/*.h)
 
+LANGUAGES ?= en_GB
+LANGUAGE_XML = $(foreach l,$(LANGUAGES),<string>$(l)</string>)
+
 SERVICE   = build/TeXAspell.service
 PREFIX   ?= $(HOME)/.local
 SERVICES_DIR = $(HOME)/Library/Services
 
-.PHONY: all test service install uninstall clean
+.PHONY: all test service install uninstall clean FORCE
 
 all: build/texaspell
 
@@ -45,10 +52,16 @@ test: build/texaspell
 ifeq ($(UNAME),Darwin)
 service: $(SERVICE)
 
-$(SERVICE): $(CORE_SRC) $(CORE_HDR) src/macos/main.m macos/Info.plist
+# Always rebuilt, so a change of LANGUAGES takes effect.
+$(SERVICE): FORCE
+	@for l in $(LANGUAGES); do \
+	  case $$l in en_GB) d=$$(sed -n 's/^dictionary *= *//p' "$(HOME)/Library/Application Support/TeXAspell/config.txt" 2>/dev/null); d=$${d:-en_GB-ise};; *) d=$$l;; esac; \
+	  aspell dicts 2>/dev/null | grep -qx "$$d" || \
+	    echo "warning: no aspell dictionary \"$$d\" for $$l; it will not be offered"; \
+	done
 	@rm -rf $@
 	@mkdir -p $@/Contents/MacOS
-	cp macos/Info.plist $@/Contents/Info.plist
+	sed 's|@LANGUAGES@|$(LANGUAGE_XML)|' macos/Info.plist > $@/Contents/Info.plist
 	$(CC) $(CPPFLAGS) $(CFLAGS) -fobjc-arc -o build/TeXAspell \
 		$(CORE_SRC) src/macos/main.m $(LDFLAGS) $(LDLIBS) -framework AppKit
 	cp build/TeXAspell $@/Contents/MacOS/TeXAspell
@@ -65,7 +78,8 @@ install: $(SERVICE) build/texaspell
 	cp build/texaspell $(PREFIX)/bin/
 	/System/Library/CoreServices/pbs -update
 	@echo
-	@echo "Installed. Now choose \"British English (TeXAspell)\" in TeXShop's"
+	@echo "Installed, offering: $(LANGUAGES)"
+	@echo "Now choose a TeXAspell language in TeXShop's"
 	@echo "Edit > Spelling and Grammar > Show Spelling and Grammar panel."
 	@echo "If it is not listed, log out and back in."
 

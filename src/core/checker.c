@@ -14,6 +14,15 @@
 #include "strset.h"
 
 #define MAX_RECENT_ENVS 2000
+#define MAX_LANGS 32
+#define DEFAULT_LANGUAGE "en_GB"
+
+/* A language other than the default, and its aspell dictionary. */
+typedef struct langdict {
+    char lang[32];
+    char dict[128];
+    speller *sp;    /* opened on first use */
+} langdict;
 
 struct texaspell {
     char home[1024];
@@ -25,7 +34,10 @@ struct texaspell {
     int min_word_length;
     char warning[1200];
 
-    speller *sp;
+    speller *sp;          /* dictionary in use       */
+    speller *default_sp;  /* dictionary for en_GB    */
+    langdict langs[MAX_LANGS];
+    int nlangs;
     cmddb db;
     strset words;        /* words.txt                                   */
     strset user_cmds;    /* commands.txt and auto-commands.txt          */
@@ -45,6 +57,10 @@ static const char default_config[] =
     "#   en_GB-ize  British English, Oxford -ize spellings (organize)\n"
     "#   en_GB      British English, accepts both\n"
     "dictionary = en_GB-ise\n"
+    "\n"
+    "# Other languages offered in the Spelling panel use the aspell dictionary\n"
+    "# of the same name (en_US, de_DE, fr_FR, ...). To use a different one:\n"
+    "#   dictionary.en_US = en_US-variant_1\n"
     "\n"
     "# Check \\command names and \\begin{environment} names against the\n"
     "# commands your TeX installation defines.\n"
@@ -217,8 +233,15 @@ static void config_line(texaspell *ta, char *line)
         key[--kl] = '\0';
     while (*val && isspace((unsigned char)*val))
         val++;
-    if (strcmp(key, "dictionary") == 0)
+    if (strcmp(key, "dictionary") == 0) {
         snprintf(ta->dictionary, sizeof ta->dictionary, "%s", val);
+    } else if (strncmp(key, "dictionary.", 11) == 0 && key[11] &&
+               ta->nlangs < MAX_LANGS) {
+        langdict *l = &ta->langs[ta->nlangs++];
+        snprintf(l->lang, sizeof l->lang, "%s", key + 11);
+        snprintf(l->dict, sizeof l->dict, "%s", val);
+        l->sp = NULL;
+    }
     else if (strcmp(key, "check_commands") == 0)
         ta->check_commands = yes(val);
     else if (strcmp(key, "skip_allcaps") == 0)
@@ -367,7 +390,7 @@ texaspell *ta_open(const char *home, char *err, size_t errlen)
     load_user_lists(ta);
 
     char aerr[512] = "";
-    ta->sp = speller_open(ta->dictionary, aerr, sizeof aerr);
+    ta->default_sp = ta->sp = speller_open(ta->dictionary, aerr, sizeof aerr);
     if (!ta->sp) {
         if (err)
             snprintf(err, errlen, "cannot open aspell dictionary \"%s\" (%s). "
@@ -393,7 +416,9 @@ void ta_close(texaspell *ta)
 {
     if (!ta)
         return;
-    speller_close(ta->sp);
+    speller_close(ta->default_sp);
+    for (int i = 0; i < ta->nlangs; i++)
+        speller_close(ta->langs[i].sp);
     cmddb_free(&ta->db);
     strset_free(&ta->words);
     strset_free(&ta->user_cmds);
@@ -407,6 +432,40 @@ void ta_close(texaspell *ta)
 
 const char *ta_home(const texaspell *ta) { return ta->home; }
 const char *ta_dictionary(const texaspell *ta) { return ta->dictionary; }
+
+int ta_use_language(texaspell *ta, const char *lang, char *err, size_t errlen)
+{
+    if (!lang || !*lang || strcmp(lang, DEFAULT_LANGUAGE) == 0) {
+        ta->sp = ta->default_sp;
+        return 1;
+    }
+    langdict *l = NULL;
+    for (int i = 0; i < ta->nlangs; i++)
+        if (strcmp(ta->langs[i].lang, lang) == 0)
+            l = &ta->langs[i];
+    if (!l) {
+        if (ta->nlangs >= MAX_LANGS) {
+            if (err) snprintf(err, errlen, "too many languages");
+            return 0;
+        }
+        l = &ta->langs[ta->nlangs++];
+        snprintf(l->lang, sizeof l->lang, "%s", lang);
+        snprintf(l->dict, sizeof l->dict, "%s", lang);
+        l->sp = NULL;
+    }
+    if (!l->sp) {
+        char aerr[512] = "";
+        l->sp = speller_open(l->dict, aerr, sizeof aerr);
+        if (!l->sp) {
+            if (err)
+                snprintf(err, errlen, "cannot open aspell dictionary \"%s\" for %s (%s)",
+                         l->dict, lang, aerr);
+            return 0;
+        }
+    }
+    ta->sp = l->sp;
+    return 1;
+}
 int ta_commands_enabled(const texaspell *ta) { return ta->check_commands; }
 const char *ta_warning(const texaspell *ta) { return ta->warning[0] ? ta->warning : NULL; }
 

@@ -47,6 +47,15 @@ void ta_forget(texaspell *ta, const char *word, size_t len);
 
 const char *ta_home(const texaspell *ta);
 const char *ta_dictionary(const texaspell *ta);
+
+/* Choose the language for later ta_check / ta_suggest calls, e.g. "en_US".
+ * NULL or "en_GB" means the British dictionary set in config.txt; any
+ * other language uses the aspell dictionary of the same name unless
+ * config.txt says otherwise (dictionary.en_US = ...). Returns 0, with a
+ * message in err, if the dictionary cannot be opened; the language in use
+ * is then unchanged. LaTeX checking and your own word lists are shared by
+ * all languages. */
+int ta_use_language(texaspell *ta, const char *lang, char *err, size_t errlen);
 int ta_commands_enabled(const texaspell *ta);
 /* A problem worth telling the user about (e.g. TeX not found), or NULL. */
 const char *ta_warning(const texaspell *ta);

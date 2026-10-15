@@ -22,7 +22,8 @@ static void usage(void)
         "\n"
         "  -s, --suggest       show suggestions\n"
         "  -l, --list          print only the flagged words, one per line\n"
-        "  -d, --dict NAME     aspell dictionary (default from config.txt)\n"
+        "  -L, --lang LANG     language, e.g. en_US (default en_GB)\n"
+        "  -d, --dict NAME     aspell dictionary for en_GB (default from config.txt)\n"
         "      --home DIR      settings folder\n"
         "      --learn WORD    add WORD (or \\command) to your own list\n"
         "      --forget WORD   remove WORD from your own lists\n"
@@ -107,7 +108,7 @@ static int check_text(texaspell *ta, const char *name, const char *text, size_t 
 int main(int argc, char **argv)
 {
     const char *home = NULL;
-    const char *learn = NULL, *forget = NULL;
+    const char *learn = NULL, *forget = NULL, *lang = NULL;
     int suggest = 0, list = 0, info = 0;
     int first_file = argc;
 
@@ -119,6 +120,8 @@ int main(int argc, char **argv)
             list = 1;
         } else if ((strcmp(a, "-d") == 0 || strcmp(a, "--dict") == 0) && i + 1 < argc) {
             setenv("TEXASPELL_DICTIONARY", argv[++i], 1);
+        } else if ((strcmp(a, "-L") == 0 || strcmp(a, "--lang") == 0) && i + 1 < argc) {
+            lang = argv[++i];
         } else if (strcmp(a, "--home") == 0 && i + 1 < argc) {
             home = argv[++i];
         } else if (strcmp(a, "--learn") == 0 && i + 1 < argc) {
@@ -151,6 +154,11 @@ int main(int argc, char **argv)
     }
     if (ta_warning(ta))
         fprintf(stderr, "texaspell: warning: %s\n", ta_warning(ta));
+    if (lang && !ta_use_language(ta, lang, err, sizeof err)) {
+        fprintf(stderr, "texaspell: %s\n", err);
+        ta_close(ta);
+        return 2;
+    }
 
     if (info) {
         printf("settings folder: %s\n", ta_home(ta));
