@@ -1346,12 +1346,19 @@ static void prescan(scanner *sc)
     }
 }
 
+static int fragment_option_line(scanner *sc);
+
 static void run(scanner *sc)
 {
     while (sc->p < sc->n) {
         frame *t = top(sc);
         unsigned char c = (unsigned char)sc->s[sc->p];
         const char *resume = NULL;
+
+        /* a line of a key=value list cut off from its \hypersetup{ */
+        if (sc->depth == 0 && t->mode == M_PROSE &&
+            (sc->p == 0 || sc->s[sc->p - 1] == '\n') && fragment_option_line(sc))
+            continue;
 
         if (t->mode == M_SKIP) {
             if (c == '\\') {
@@ -1532,6 +1539,82 @@ static void option_list(scanner *sc, size_t a, size_t b)
         }
         i = j + 1;
     }
+}
+
+/* While typing, the spell checker is usually given only the line being
+ * edited, so a line such as
+ *     pdftitle={Nuclear Decommissioning},
+ * arrives without the \hypersetup{ above it. If a line at the top level
+ * starts "name=" treat it as one item of an option list: the name is not
+ * spell-checked (names starting "pdf" are checked as hyperref options),
+ * and the value is prose for pdftitle and the like. Returns 1 if the line
+ * was handled. */
+static int fragment_option_line(scanner *sc)
+{
+    const char *s = sc->s;
+    size_t n = sc->n, q = sc->p;
+    int items = 0;
+
+    for (;;) {
+        while (q < n && (s[q] == ' ' || s[q] == '\t'))
+            q++;
+        size_t ka = q;
+        if (q >= n || !is_alpha((unsigned char)s[q]))
+            break;
+        while (q < n && (is_alpha((unsigned char)s[q]) || is_digit((unsigned char)s[q]) ||
+                         s[q] == '-'))
+            q++;
+        size_t kb = q;
+        while (q < n && (s[q] == ' ' || s[q] == '\t'))
+            q++;
+        int has_value = q < n && s[q] == '=';
+        /* the first item must be name=value; later ones may be bare names
+         * ("bookmarks, hidelinks") */
+        if (kb - ka < 2 || (!has_value &&
+                            (items == 0 || !(q >= n || s[q] == ',' || s[q] == '\n'))))
+            break;
+
+        size_t va = q + 1, vb = va;
+        if (has_value) {
+            /* the value runs to a top-level comma, the end of the line, or
+             * an unmatched closing brace */
+            int d = 0;
+            while (vb < n) {
+                char c = s[vb];
+                if (c == '\\') { vb += 2; continue; }
+                if (c == '{') d++;
+                else if (c == '}') { if (d == 0) break; d--; }
+                else if (d == 0 && (c == ',' || c == '\n')) break;
+                vb++;
+            }
+            if (vb > n)
+                vb = n;
+        } else {
+            va = vb = q;
+        }
+        size_t end = vb < n && s[vb] == ',' ? vb + 1 : vb;
+
+        int is_pdf = kb - ka > 3 && memcmp(s + ka, "pdf", 3) == 0;
+        if (sc->cb && sc->cb->option)
+            sc->cb->option(sc->cb->ctx, is_pdf ? "hypersetup" : "", is_pdf ? 10 : 0,
+                           s + ka, kb - ka, ka, kb);
+        int prose = 0;
+        for (const char *const *k = prose_keys; *k; k++)
+            if (strlen(*k) == kb - ka && memcmp(*k, s + ka, kb - ka) == 0)
+                prose = 1;
+        trim(s, &va, &vb);
+        if (va < vb && s[va] == '{' && match_brace(s, vb, va) == vb - 1) {
+            va++;
+            vb--;
+        }
+        if (va < vb)
+            sub_scan(sc, va, vb, prose ? M_PROSE : M_KV);
+        items++;
+        sc->p = q = end;
+        if (q >= n || s[q] == '\n' || s[q] == '}')
+            break;
+    }
+    return items > 0;
 }
 
 void ts_scan(const char *src, size_t len, const ts_callbacks *cb)
