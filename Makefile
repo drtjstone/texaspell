@@ -62,9 +62,12 @@ $(SERVICE): FORCE
 	@rm -rf $@
 	@mkdir -p $@/Contents/MacOS
 	sed 's|@LANGUAGES@|$(LANGUAGE_XML)|' macos/Info.plist > $@/Contents/Info.plist
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fobjc-arc -o build/TeXAspell \
+	@# Not build/TeXAspell: on a case-insensitive Mac disk that is the
+	@# same file as build/texaspell, the command-line tool.
+	@mkdir -p build/service-bin
+	$(CC) $(CPPFLAGS) $(CFLAGS) -fobjc-arc -o build/service-bin/TeXAspell \
 		$(CORE_SRC) src/macos/main.m $(LDFLAGS) $(LDLIBS) -framework AppKit
-	cp build/TeXAspell $@/Contents/MacOS/TeXAspell
+	cp build/service-bin/TeXAspell $@/Contents/MacOS/TeXAspell
 	@# codesign refuses files carrying extended attributes (Finder info,
 	@# quarantine, iCloud/File Provider metadata), so strip them first.
 	xattr -cr $@
