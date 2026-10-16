@@ -164,6 +164,9 @@ int main(int argc, char **argv)
         printf("settings folder: %s\n", ta_home(ta));
         printf("dictionary:      %s\n", ta_dictionary(ta));
         printf("command checks:  %s\n", ta_commands_enabled(ta) ? "on" : "off");
+        char desc[4096];
+        ta_describe(ta, desc, sizeof desc);
+        fputs(desc, stdout);
         ta_close(ta);
         return 0;
     }
@@ -186,6 +189,15 @@ int main(int argc, char **argv)
         }
     }
     for (int i = first_file; i < argc; i++) {
+        /* \input{preamble} is looked for next to the document */
+        char dir[1024];
+        snprintf(dir, sizeof dir, "%s", argv[i]);
+        char *slash = strrchr(dir, '/');
+        if (slash)
+            *slash = '\0';
+        else
+            snprintf(dir, sizeof dir, ".");
+        ta_set_document_dir(ta, dir);
         FILE *f = fopen(argv[i], "rb");
         if (!f) {
             perror(argv[i]);

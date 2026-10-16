@@ -35,7 +35,8 @@ typedef enum {
     TS_DEF_PACKAGE,     /* \usepackage{foo}, \RequirePackage{foo}           */
     TS_DEF_CLASS,       /* \documentclass{foo}, \LoadClass{foo}             */
     TS_DEF_KEY,         /* an option key: \define@key{Hyp}{pdftitle}       */
-    TS_DEF_MAIN_LANGUAGE /* \usepackage[british]{babel}: name = "british"   */
+    TS_DEF_MAIN_LANGUAGE, /* \usepackage[british]{babel}: name = "british"  */
+    TS_DEF_INPUT        /* documents: \input{preamble}, \include{chap1}     */
 } ts_def_kind;
 
 typedef struct ts_callbacks {

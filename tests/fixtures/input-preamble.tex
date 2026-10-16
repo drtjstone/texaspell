@@ -1,0 +1,28 @@
+% Packages and commands come from a preamble file read with \input.
+\documentclass[a4paper,12pt]{article}
+\input{shared-preamble}
+\hypersetup{
+  pdftitle={Nuclear Decommissioning at the Lowest Cost},
+  pdfauthor={},
+  pdfsubject={Independent Review},
+  pdfkeywords={decommissioning, graphite, funding},
+  pdfcreator={},
+  pdfproducer={},
+  pdfcreationdate={},
+  pdfmoddate={}
+}%
+\DeclareAcronym{NDA}{short=NDA,long=Nuclear Decommissioning Authority}
+\title{Decommissioning\\[0.4em]\large Working Note}
+\date{\nth{11} October 2026}
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+\acresetall
+\section{Summary}
+The \ac{NDA}'s strategy is set out by the \dept{} \autocite[pp.~17--18]{strategy}
+and elsewhere \autocites[Appendix~2]{onrtags}{govresponse}. The NDA's plan
+has a \textbf{clear} aim, as \Textcite{strategy} and \parencite{strategy} show.
+A typo in a command: \acrsetall, and in a word: decomissioning.
+\printbibliography[title={References}]
+\printacronyms
+\end{document}

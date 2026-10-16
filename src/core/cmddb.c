@@ -381,6 +381,7 @@ static void on_define(void *ctx, ts_def_kind kind, const char *name, size_t len)
         strset_addn(&lc->db->keys, name, len);
         break;
     case TS_DEF_MAIN_LANGUAGE:
+    case TS_DEF_INPUT:
         break;
     }
 }
@@ -424,11 +425,24 @@ static void add_companions(cmddb *db, load_ctx *lc, const char *file)
         "directives", "moredirectives", "deletedirectives", "directivestyle",
         "keywordsprefix", "otherkeywords", NULL
     };
+    /* biblatex reads its citation and bibliography styles when the
+     * document runs; read the standard ones */
+    static const char *const biblatex_files[] = {
+        "biblatex.def", "standard.cbx", "standard.bbx", "numeric.cbx",
+        "authoryear.cbx",
+        "authortitle.cbx", "alphabetic.cbx", "verbose.cbx", NULL
+    };
+    /* made by \DeclareAutoCiteCommand when the document starts */
+    static const char *const biblatex_cmds[] = {
+        "autocite", "Autocite", "autocites", "Autocites", "smartcite",
+        "Smartcite", "smartcites", "Smartcites", NULL
+    };
     /* environments made from the float types when the document starts */
     static const char *const subcaption_envs[] = {
         "subfigure", "subtable", NULL
     };
     const char *const *files = NULL, *const *keys = NULL, *const *envs = NULL;
+    const char *const *cmds = NULL;
     if (strcmp(file, "hyperref.sty") == 0) {
         files = hyperref_files;
         keys = hyperref_keys;
@@ -437,7 +451,12 @@ static void add_companions(cmddb *db, load_ctx *lc, const char *file)
         keys = listings_keys;
     } else if (strcmp(file, "subcaption.sty") == 0) {
         envs = subcaption_envs;
+    } else if (strcmp(file, "biblatex.sty") == 0) {
+        files = biblatex_files;
+        cmds = biblatex_cmds;
     }
+    for (; cmds && *cmds; cmds++)
+        cmd_mark(db, *cmds, strlen(*cmds), CMD_DEFINED);
     for (; envs && *envs; envs++)
         strset_add(&db->envs, *envs);
     for (; files && *files; files++)
@@ -535,6 +554,28 @@ int cmddb_has_environment(const cmddb *db, const char *name, size_t len)
     memcpy(buf, "end", 3);
     memcpy(buf + 3, name, base);
     return cmddb_has_command(db, name, base) && cmddb_has_command(db, buf, base + 3);
+}
+
+char *cmddb_find_file(const cmddb *db, const char *name)
+{
+    char *names[1] = {(char *)name};
+    char *path = NULL;
+    kpse_lookup(db, names, 1, &path);
+    return path;
+}
+
+char *cmddb_read_file(const char *path, size_t *len)
+{
+    return read_file(path, len);
+}
+
+size_t cmddb_known_commands(const cmddb *db)
+{
+    size_t n = 0;
+    for (size_t i = 0; i < db->cmds.cap; i++)
+        if (db->cmds.slots[i] && cmd_known_value(db->cmds.vals[i]))
+            n++;
+    return n;
 }
 
 int cmddb_has_key(const cmddb *db, const char *name, size_t len)

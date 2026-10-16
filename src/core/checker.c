@@ -56,6 +56,9 @@ struct texaspell {
     strset packages;     /* names listed in packages.txt                */
     strset recent_envs;  /* environment names flagged recently          */
     strset recent_keys;  /* option keys flagged recently                */
+    strset inputs_done;  /* \input files already read                    */
+    char doc_dir[1024];  /* folder of the document being checked, if known */
+    char input_dirs[2048]; /* config: more folders for \input files       */
     char doc_lang[32];   /* main language of the document (babel name)   */
     recent_word recent_words[RECENT_WORDS];
     int recent_next;
@@ -90,7 +93,14 @@ static const char default_config[] =
     "\n"
     "# Document classes whose commands are always accepted (the text being\n"
     "# checked often does not include the \\documentclass line).\n"
-    "default_classes = article report book\n";
+    "default_classes = article report book\n"
+    "\n"
+    "# Folders to search for files your documents \\input (such as a shared\n"
+    "# preamble), separated by colons. The spell service is not told where\n"
+    "# your document is, so list the folders here. Files in your personal TeX\n"
+    "# tree (~/Library/texmf/tex/latex) are found without this.\n"
+    "#   input_dirs = ~/Documents/LaTeX:~/Work/Preambles\n"
+    "input_dirs =\n";
 
 static const char default_packages[] =
     "# Packages whose commands are always accepted, one per line.\n"
@@ -263,6 +273,8 @@ static void config_line(texaspell *ta, char *line)
         ta->min_word_length = atoi(val);
     else if (strcmp(key, "kpsewhich") == 0)
         snprintf(ta->kpsewhich, sizeof ta->kpsewhich, "%s", val);
+    else if (strcmp(key, "input_dirs") == 0)
+        snprintf(ta->input_dirs, sizeof ta->input_dirs, "%s", val);
     else if (strcmp(key, "default_classes") == 0)
         snprintf(ta->default_classes, sizeof ta->default_classes, "%s", val);
 }
@@ -387,6 +399,7 @@ texaspell *ta_open(const char *home, char *err, size_t errlen)
     strset_init(&ta->packages);
     strset_init(&ta->recent_envs);
     strset_init(&ta->recent_keys);
+    strset_init(&ta->inputs_done);
 
     if (mkdirs(ta->home) == 0) {
         ensure_file(ta->home, "config.txt", default_config);
@@ -440,10 +453,29 @@ void ta_close(texaspell *ta)
     strset_free(&ta->packages);
     strset_free(&ta->recent_envs);
     strset_free(&ta->recent_keys);
+    strset_free(&ta->inputs_done);
     free(ta);
 }
 
 const char *ta_home(const texaspell *ta) { return ta->home; }
+
+void ta_set_document_dir(texaspell *ta, const char *dir)
+{
+    snprintf(ta->doc_dir, sizeof ta->doc_dir, "%s", dir ? dir : "");
+}
+
+void ta_describe(const texaspell *ta, char *out, size_t outlen)
+{
+    snprintf(out, outlen,
+             "kpsewhich:       %s\n"
+             "LaTeX kernel:    %s\n"
+             "files read:      %zu\n"
+             "commands known:  %zu\n"
+             "input_dirs:      %s\n",
+             ta->db.kpsewhich, ta->db.have_kernel ? "found" : "NOT FOUND",
+             ta->db.files_read, cmddb_known_commands(&ta->db),
+             ta->input_dirs[0] ? ta->input_dirs : "(none)");
+}
 const char *ta_dictionary(const texaspell *ta) { return ta->dictionary; }
 
 /* The speller for an aspell language code; NULL if its dictionary cannot be
@@ -534,6 +566,8 @@ typedef struct collect {
     int have_main_lang;
     int saw_class;
     size_t nfiles, fcap;
+    char **inputs;  /* \input / \include file names */
+    size_t ninputs, incap;
 } collect;
 
 static void add_token(collect *c, int kind, const char *t, size_t len,
@@ -622,6 +656,25 @@ static void on_doc_define(void *ctx, ts_def_kind kind, const char *name, size_t 
     }
     case TS_DEF_KEY:
         break;
+    case TS_DEF_INPUT: {
+        if (len > 500 || c->ninputs >= 200)
+            return;
+        if (c->ninputs == c->incap) {
+            size_t ncap = c->incap ? c->incap * 2 : 8;
+            char **ni = realloc(c->inputs, ncap * sizeof *ni);
+            if (!ni)
+                return;
+            c->inputs = ni;
+            c->incap = ncap;
+        }
+        char *f = malloc(len + 1);
+        if (!f)
+            return;
+        memcpy(f, name, len);
+        f[len] = '\0';
+        c->inputs[c->ninputs++] = f;
+        break;
+    }
     case TS_DEF_MAIN_LANGUAGE:
         if (len < sizeof c->main_lang) {
             memcpy(c->main_lang, name, len);
@@ -651,6 +704,88 @@ static void on_doc_define(void *ctx, ts_def_kind kind, const char *name, size_t 
         c->files[c->nfiles++] = f;
         break;
     }
+    }
+}
+
+static char *try_path(const char *dir, const char *name, const char *ext)
+{
+    char path[3200];
+    if (dir)
+        snprintf(path, sizeof path, "%s/%s%s", dir, name, ext);
+    else
+        snprintf(path, sizeof path, "%s%s", name, ext);
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return NULL;
+    fclose(f);
+    return strdup(path);
+}
+
+/* Find an \input file: in the document's folder, the input_dirs from
+ * config.txt, then the TeX installation (e.g. ~/Library/texmf). */
+static char *find_input(texaspell *ta, const char *name)
+{
+    static const char *const exts[] = {"", ".tex"};
+    for (int e = 0; e < 2; e++) {
+        char *p = NULL;
+        if (name[0] == '/')
+            p = try_path(NULL, name, exts[e]);
+        if (!p && ta->doc_dir[0])
+            p = try_path(ta->doc_dir, name, exts[e]);
+        if (!p && ta->input_dirs[0]) {
+            char dirs[2048];
+            snprintf(dirs, sizeof dirs, "%s", ta->input_dirs);
+            for (char *d = strtok(dirs, ":"); d && !p; d = strtok(NULL, ":")) {
+                char full[2048];
+                while (*d == ' ')
+                    d++;
+                if (d[0] == '~' && getenv("HOME"))
+                    snprintf(full, sizeof full, "%s%s", getenv("HOME"), d + 1);
+                else
+                    snprintf(full, sizeof full, "%s", d);
+                p = try_path(full, name, exts[e]);
+            }
+        }
+        if (p)
+            return p;
+    }
+    if (!strchr(name, '/') && ta->check_commands) {
+        char buf[600];
+        for (int e = 0; e < 2; e++) {
+            snprintf(buf, sizeof buf, "%s%s", name, exts[e]);
+            char *p = cmddb_find_file(&ta->db, buf);
+            if (p)
+                return p;
+        }
+    }
+    return NULL;
+}
+
+/* Read the files the document \input s (a preamble kept in a separate file,
+ * chapters) for the packages they load and the commands they define. Each
+ * file is read once per session; what it defines is remembered in
+ * packages.txt and auto-commands.txt. */
+static void follow_inputs(texaspell *ta, collect *c)
+{
+    ts_callbacks cb = {c, NULL, on_doc_define, NULL};
+    int files = 0;
+    for (size_t i = 0; i < c->ninputs && files < 50; i++) {
+        const char *name = c->inputs[i];
+        char key[1600];
+        snprintf(key, sizeof key, "%s|%s", ta->doc_dir, name);
+        if (strset_add(&ta->inputs_done, key) != 1)
+            continue;
+        char *path = find_input(ta, name);
+        if (!path)
+            continue;
+        size_t len = 0;
+        char *text = cmddb_read_file(path, &len);
+        free(path);
+        if (!text)
+            continue;
+        ts_scan(text, len, &cb);
+        free(text);
+        files++;
     }
 }
 
@@ -699,6 +834,9 @@ static int is_allcaps(const char *w, size_t len)
         /* plural acronyms: MPs, NGOs */
         if (c == 's' && i == len - 1 && upper >= 2)
             continue;
+        /* possessives: NDA's (the scanner turns ’ into ') */
+        if (c == '\'' && i == len - 2 && w[len - 1] == 's' && upper >= 2)
+            return 1;
         return 0;
     }
     return upper >= 2;
@@ -785,6 +923,7 @@ size_t ta_check(texaspell *ta, const char *text, size_t len,
     ts_callbacks cb = {&c, on_token, on_doc_define, on_option};
     ts_scan(text, len, &cb);
 
+    follow_inputs(ta, &c);
     load_document_packages(ta, &c);
 
     /* The main language is remembered between checks, because the text
@@ -864,6 +1003,9 @@ size_t ta_check(texaspell *ta, const char *text, size_t len,
     for (size_t i = 0; i < c.nfiles; i++)
         free(c.files[i]);
     free(c.files);
+    for (size_t i = 0; i < c.ninputs; i++)
+        free(c.inputs[i]);
+    free(c.inputs);
     *out = issues;
     return ni;
 }

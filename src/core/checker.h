@@ -46,6 +46,13 @@ void ta_learn(texaspell *ta, const char *word, size_t len);
 void ta_forget(texaspell *ta, const char *word, size_t len);
 
 const char *ta_home(const texaspell *ta);
+
+/* The folder of the document being checked, so \input{preamble} can be
+ * found there (NULL or "" when unknown, as for the spell service). */
+void ta_set_document_dir(texaspell *ta, const char *dir);
+
+/* A few lines describing the TeX installation found, for --info. */
+void ta_describe(const texaspell *ta, char *out, size_t outlen);
 const char *ta_dictionary(const texaspell *ta);
 
 /* Choose the language for later ta_check / ta_suggest calls, e.g. "en_US".

@@ -36,6 +36,16 @@ int cmddb_has_command(const cmddb *db, const char *name, size_t len);
 int cmddb_has_environment(const cmddb *db, const char *name, size_t len);
 
 int cmddb_has_key(const cmddb *db, const char *name, size_t len);
+
+/* Full path of a file in the TeX installation (kpsewhich), malloc'd, or
+ * NULL. */
+char *cmddb_find_file(const cmddb *db, const char *name);
+
+/* Read a whole file (up to 16 MB); malloc'd, or NULL. */
+char *cmddb_read_file(const char *path, size_t *len);
+
+/* Number of commands currently known, for diagnostics. */
+size_t cmddb_known_commands(const cmddb *db);
 /* Was this file (e.g. "hyperref.sty") found and read? */
 int cmddb_loaded(const cmddb *db, const char *file);
 

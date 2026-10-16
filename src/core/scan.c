@@ -1171,6 +1171,56 @@ static void do_backslash(scanner *sc)
         args(sc, "P");
         return;
     }
+    if (name_is(name, len, "input") || name_is(name, len, "include") ||
+        name_is(name, len, "subfile") || name_is(name, len, "InputIfFileExists")) {
+        /* report the file so the checker can read its definitions */
+        size_t q = skip_ws(sc, sc->p);
+        if (q < n && s[q] == '{') {
+            size_t close = match_brace(s, n, q);
+            size_t a = q + 1, b = close < n ? close : n;
+            trim(s, &a, &b);
+            if (b > a && !memchr(s + a, '\\', b - a) && !memchr(s + a, '#', b - a))
+                define(sc->cb, TS_DEF_INPUT, s + a, b - a);
+        } else if (name_is(name, len, "input")) {
+            /* \input file  (TeX syntax): the name ends at a space */
+            size_t b = q;
+            while (b < n && !isspace((unsigned char)s[b]) && s[b] != '\\' &&
+                   s[b] != '%' && s[b] != '}' && s[b] != '{')
+                b++;
+            if (b > q)
+                define(sc->cb, TS_DEF_INPUT, s + q, b - q);
+            sc->p = b;
+            return;
+        }
+    }
+    /* biblatex multicites: \autocites(pre)(post)[pre][post]{key}[..]{key}..
+     * take any number of arguments, all citation keys or notes */
+    if (len > 5 && memcmp(name + len - 5, "cites", 5) == 0) {
+        size_t q = sc->p;
+        for (;;) {
+            q = skip_ws(sc, q);
+            if (q >= n)
+                break;
+            if (s[q] == '(') {
+                size_t r = q + 1;
+                int d = 1;
+                while (r < n && d) {
+                    if (s[r] == '(') d++;
+                    else if (s[r] == ')') d--;
+                    r++;
+                }
+                q = r;
+            } else if (s[q] == '[') {
+                q = match_bracket(s, n, q) + 1;
+            } else if (s[q] == '{') {
+                q = match_brace(s, n, q) + 1;
+            } else {
+                break;
+            }
+        }
+        sc->p = q < n ? q : n;
+        return;
+    }
     if (name_is(name, len, "selectlanguage")) {
         size_t a, b;
         if (env_arg(sc, &a, &b))
@@ -1671,6 +1721,9 @@ static const char *const definers[] = {
     "newdimen", "newskip", "newmuskip", "newtoks", "newbox", "newread",
     "newwrite", "newif", "newsavebox", "newlanguage", "newinsert", "newfam",
     "algnewcommand", "algrenewcommand", "newtheorem", "newcolumntype",
+    "NewAcroCommand", "RenewAcroCommand", "DeclareAcroCommand",
+    "ProvideAcroCommand", "DeclareCiteCommand", "DeclareMultiCiteCommand",
+    "newbibmacro", "DeclareBibliographyDriver",
     "pgfkeys", "tikzset", NULL
 };
 

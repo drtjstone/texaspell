@@ -237,6 +237,9 @@ int main(void)
         NSLog(@"TeXAspell: British dictionary %s, command checking %s, settings in %s",
               ta_dictionary(engine), ta_commands_enabled(engine) ? "on" : "off",
               ta_home(engine));
+        char desc[4096];
+        ta_describe(engine, desc, sizeof desc);
+        NSLog(@"TeXAspell:\n%s", desc);
 
         /* Offer each language listed in Info.plist whose aspell dictionary
          * can be opened. */

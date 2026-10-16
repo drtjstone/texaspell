@@ -238,6 +238,39 @@ a real failure.
 To add a typo test, add a line to `tests/typos.txt`. To check another
 package, add commands that use it to `valid-commands.tex`.
 
+## Troubleshooting
+
+**`\textbf`, `\documentclass` or `\maketitle` are underlined.** That's
+almost certainly not TeXAspell. TeXAspell knows every kernel command once it
+has found your TeX installation. Apple's checker, by contrast, sees
+`documentclass` as a misspelt word. Check that the language chosen in
+**Edit › Spelling and Grammar › Show Spelling and Grammar** is the one
+marked **TeXAspell**, not plain British English. Then, in Terminal:
+
+```sh
+texaspell --info               # "LaTeX kernel: found", thousands of commands known
+texaspell -s yourfile.tex      # what TeXAspell itself reports for the file
+```
+
+If `texaspell` reports the file clean but TeXShop still underlines LaTeX
+commands, TeXShop isn't using the service. Open **Console**, search for
+`TeXAspell`, and check that the service started. It logs the same
+information as `--info`.
+
+**Commands from a preamble in a separate file are flagged.** TeXAspell reads
+files you `\input`, `\include` or `\subfile` for the packages they load and
+the commands they define. The command-line tool looks in the document's
+folder and your TeX tree. The spell service isn't told where your document
+is, so it finds such files only in your TeX tree (for example
+`~/Library/texmf/tex/latex`) or in folders you list in `config.txt`:
+
+```text
+input_dirs = ~/Documents/LaTeX:~/Work/Preambles
+```
+
+Once a preamble has been read, its packages are remembered in
+`packages.txt`, so later checks of parts of the document still know them.
+
 ## Uninstall
 
 ```sh
