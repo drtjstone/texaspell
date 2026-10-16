@@ -78,7 +78,11 @@ install: $(SERVICE) build/texaspell
 	@mkdir -p $(SERVICES_DIR) $(PREFIX)/bin
 	rm -rf $(SERVICES_DIR)/TeXAspell.service
 	cp -R $(SERVICE) $(SERVICES_DIR)/
-	cp build/texaspell $(PREFIX)/bin/
+	@# Remove first: macOS kills a program whose file was overwritten in
+	@# place, because it remembers the old file's code signature.
+	rm -f $(PREFIX)/bin/texaspell
+	cp build/texaspell $(PREFIX)/bin/texaspell
+	codesign --force --sign - $(PREFIX)/bin/texaspell
 	/System/Library/CoreServices/pbs -update
 	@echo
 	@echo "Installed, offering: $(LANGUAGES)"
