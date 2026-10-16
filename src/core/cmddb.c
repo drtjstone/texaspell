@@ -10,6 +10,33 @@
 #include "scan.h"
 
 #define MAX_FILE_BYTES (16u * 1024 * 1024)
+
+/* Value stored with each command name: bit 0 is set when a loaded file
+ * defines it; the rest counts the loaded files that mention it. A command
+ * is known if it is defined, or mentioned in at least two files (a single
+ * mention is often a list of commands from some other package). */
+#define CMD_DEFINED 1u
+#define CMD_FILE 2u
+
+static unsigned cmd_value(const cmddb *db, const char *name, size_t len)
+{
+    unsigned *v = strset_valn(&db->cmds, name, len);
+    return v ? *v : 0;
+}
+
+static int cmd_known_value(unsigned v)
+{
+    return (v & CMD_DEFINED) || v / CMD_FILE >= 2;
+}
+
+static void cmd_mark(cmddb *db, const char *name, size_t len, unsigned bits)
+{
+    if (strset_addn(&db->cmds, name, len) < 0)
+        return;
+    unsigned *v = strset_valn(&db->cmds, name, len);
+    if (v)
+        *v |= bits;
+}
 #define MAX_FILES_PER_LOAD 1500
 
 /* TeX, e-TeX, pdfTeX, XeTeX and LuaTeX primitives a document might use.
@@ -132,7 +159,7 @@ void cmddb_init(cmddb *db, const char *setting)
     db->kpsewhich[0] = '\0';
 
     for (const char *const *p = primitives; *p; p++)
-        strset_add(&db->cmds, *p);
+        cmd_mark(db, *p, strlen(*p), CMD_DEFINED);
 
     if (setting && *setting && strcmp(setting, "auto") != 0) {
         snprintf(db->kpsewhich, sizeof db->kpsewhich, "%s", setting);
@@ -302,6 +329,7 @@ static char *read_file(const char *path, size_t *len)
 typedef struct load_ctx {
     cmddb *db;
     namelist *next;
+    strset mentioned; /* names already counted for the current file */
 } load_ctx;
 
 static void queue_file(load_ctx *lc, const char *name, size_t len, const char *ext)
@@ -320,8 +348,16 @@ static void on_define(void *ctx, ts_def_kind kind, const char *name, size_t len)
 {
     load_ctx *lc = ctx;
     switch (kind) {
+    case TS_DEF_MENTION:
+        if (strset_addn(&lc->mentioned, name, len) == 1) {
+            strset_addn(&lc->db->cmds, name, len);
+            unsigned *v = strset_valn(&lc->db->cmds, name, len);
+            if (v)
+                *v += CMD_FILE;
+        }
+        break;
     case TS_DEF_COMMAND:
-        strset_addn(&lc->db->cmds, name, len);
+        cmd_mark(lc->db, name, len, CMD_DEFINED);
         break;
     case TS_DEF_ENVIRONMENT:
         strset_addn(&lc->db->envs, name, len);
@@ -331,7 +367,7 @@ static void on_define(void *ctx, ts_def_kind kind, const char *name, size_t len)
         if (len + 4 < sizeof buf) {
             memcpy(buf, "the", 3);
             memcpy(buf + 3, name, len);
-            strset_addn(&lc->db->cmds, buf, len + 3);
+            cmd_mark(lc->db, buf, len + 3, CMD_DEFINED);
         }
         break;
     }
@@ -388,14 +424,22 @@ static void add_companions(cmddb *db, load_ctx *lc, const char *file)
         "directives", "moredirectives", "deletedirectives", "directivestyle",
         "keywordsprefix", "otherkeywords", NULL
     };
-    const char *const *files = NULL, *const *keys = NULL;
+    /* environments made from the float types when the document starts */
+    static const char *const subcaption_envs[] = {
+        "subfigure", "subtable", NULL
+    };
+    const char *const *files = NULL, *const *keys = NULL, *const *envs = NULL;
     if (strcmp(file, "hyperref.sty") == 0) {
         files = hyperref_files;
         keys = hyperref_keys;
     } else if (strcmp(file, "listings.sty") == 0) {
         files = listings_files;
         keys = listings_keys;
+    } else if (strcmp(file, "subcaption.sty") == 0) {
+        envs = subcaption_envs;
     }
+    for (; envs && *envs; envs++)
+        strset_add(&db->envs, *envs);
     for (; files && *files; files++)
         queue_file(lc, *files, strlen(*files), "");
     for (; keys && *keys; keys++)
@@ -427,7 +471,8 @@ size_t cmddb_load(cmddb *db, const char *const *names, size_t count, int *found)
         }
         kpse_lookup(db, cur.v, cur.n, paths);
 
-        load_ctx lc = {db, &next};
+        load_ctx lc = {db, &next, {0}};
+        strset_init(&lc.mentioned);
         ts_callbacks cb = {&lc, NULL, on_define, NULL};
         for (size_t i = 0; i < cur.n; i++) {
             if (!paths[i])
@@ -436,6 +481,7 @@ size_t cmddb_load(cmddb *db, const char *const *names, size_t count, int *found)
             size_t len = 0;
             char *text = read_file(paths[i], &len);
             if (text) {
+                strset_free(&lc.mentioned);
                 ts_scan_package(text, len, &cb, on_input);
                 free(text);
                 files++;
@@ -447,6 +493,7 @@ size_t cmddb_load(cmddb *db, const char *const *names, size_t count, int *found)
             free(paths[i]);
         }
         free(paths);
+        strset_free(&lc.mentioned);
         nl_free(&cur);
         cur = next;
         next = (namelist){0};
@@ -469,7 +516,7 @@ size_t cmddb_load(cmddb *db, const char *const *names, size_t count, int *found)
 
 int cmddb_has_command(const cmddb *db, const char *name, size_t len)
 {
-    return strset_hasn(&db->cmds, name, len);
+    return cmd_known_value(cmd_value(db, name, len));
 }
 
 int cmddb_has_environment(const cmddb *db, const char *name, size_t len)
@@ -487,7 +534,7 @@ int cmddb_has_environment(const cmddb *db, const char *name, size_t len)
         return 1;
     memcpy(buf, "end", 3);
     memcpy(buf + 3, name, base);
-    return strset_hasn(&db->cmds, name, base) && strset_hasn(&db->cmds, buf, base + 3);
+    return cmddb_has_command(db, name, base) && cmddb_has_command(db, buf, base + 3);
 }
 
 int cmddb_has_key(const cmddb *db, const char *name, size_t len)
@@ -533,20 +580,31 @@ typedef struct cand {
     int score;
 } cand;
 
+/* popularity: how many loaded files mention the candidate */
 static void consider(cand *best, size_t *nbest, size_t max, const char *name,
-                     const char *q, size_t ql)
+                     const char *q, size_t ql, unsigned popularity)
 {
     size_t nl = strlen(name);
     int d = cmddb_distance(q, ql, name, nl, 2);
     if (d > 2)
         return;
-    /* Rank by distance, then prefer a case-only difference, then length
-     * closest to the query. */
+    /* Rank by distance; among equals prefer a case-only difference, then
+     * commands used by many packages (\large rather than \marg for
+     * \larg), then the length closest to the query. */
     int caseonly = (nl == ql);
     for (size_t i = 0; caseonly && i < nl; i++)
         if (tolower((unsigned char)name[i]) != tolower((unsigned char)q[i]))
             caseonly = 0;
-    int score = d * 100 - (caseonly ? 50 : 0) + (int)(nl > ql ? nl - ql : ql - nl);
+    int pop = 0;
+    while (popularity > 1 && pop < 12) {
+        popularity >>= 1;
+        pop++;
+    }
+    int score = d * 1000 - (caseonly ? 500 : 0) - pop * 20 +
+                (int)(nl > ql ? nl - ql : ql - nl) * 10;
+    /* plain "cases" before "cases*" unless a star was typed */
+    if (nl && name[nl - 1] == '*' && !(ql && q[ql - 1] == '*'))
+        score += 15;
     for (size_t i = 0; i < *nbest; i++)
         if (strcmp(best[i].name, name) == 0)
             return;
@@ -578,27 +636,30 @@ size_t cmddb_suggest(const cmddb *db, const strset *extra, cmddb_kind kind,
     if (kind == CMDDB_KEYS) {
         for (size_t i = 0; i < db->keys.cap; i++)
             if (db->keys.slots[i])
-                consider(best, &nbest, max, db->keys.slots[i], q, ql);
+                consider(best, &nbest, max, db->keys.slots[i], q, ql, 0);
     } else if (kind == CMDDB_ENVIRONMENTS) {
         for (size_t i = 0; i < db->envs.cap; i++)
             if (db->envs.slots[i])
-                consider(best, &nbest, max, db->envs.slots[i], q, ql);
+                consider(best, &nbest, max, db->envs.slots[i], q, ql, 0);
         /* \foo + \endfoo pairs */
         for (size_t i = 0; i < db->cmds.cap; i++) {
             const char *c = db->cmds.slots[i];
             if (c && strncmp(c, "end", 3) == 0 && c[3] &&
-                strset_has(&db->cmds, c + 3))
-                consider(best, &nbest, max, c + 3, q, ql);
+                cmd_known_value(db->cmds.vals[i]) &&
+                cmddb_has_command(db, c + 3, strlen(c + 3)))
+                consider(best, &nbest, max, c + 3, q, ql,
+                         cmd_value(db, c + 3, strlen(c + 3)) / CMD_FILE);
         }
     } else {
         for (size_t i = 0; i < db->cmds.cap; i++)
-            if (db->cmds.slots[i])
-                consider(best, &nbest, max, db->cmds.slots[i], q, ql);
+            if (db->cmds.slots[i] && cmd_known_value(db->cmds.vals[i]))
+                consider(best, &nbest, max, db->cmds.slots[i], q, ql,
+                         db->cmds.vals[i] / CMD_FILE);
     }
     if (extra)
         for (size_t i = 0; i < extra->cap; i++)
             if (extra->slots[i])
-                consider(best, &nbest, max, extra->slots[i], q, ql);
+                consider(best, &nbest, max, extra->slots[i], q, ql, 0);
 
     for (size_t i = 0; i < nbest; i++)
         out[i] = strdup(best[i].name);

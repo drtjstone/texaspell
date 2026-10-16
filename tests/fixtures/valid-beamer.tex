@@ -1,0 +1,50 @@
+% Correct beamer commands. TeXAspell must flag nothing in this file.
+\documentclass{beamer}
+\usetheme{Madrid}
+\usecolortheme{beaver}
+\usefonttheme{professionalfonts}
+\setbeamertemplate{navigation symbols}{}
+\setbeamercolor{title}{fg=white}
+\setbeamerfont{title}{size=\Large}
+\AtBeginSection[]{\begin{frame}\tableofcontents[currentsection]\end{frame}}
+\title[Short]{Spending Review}
+\subtitle{Briefing}
+\author{A. N. Other}
+\institute{Cabinet Office}
+\date{\today}
+\logo{\includegraphics[height=1cm]{logo.png}}
+
+\begin{document}
+\begin{frame}
+  \titlepage
+\end{frame}
+\section{Overview}
+\begin{frame}{Key points}
+  \framesubtitle{Detail}
+  \begin{itemize}
+    \item<1-> First \pause
+    \item<2-> Second
+  \end{itemize}
+  \only<2>{Only on two.} \uncover<3>{Uncovered.} \visible<2->{Visible.}
+  \invisible<1>{Hidden.} \alert{Important} \alt<2>{A}{B}
+  \onslide<2->{Slide.} \temporal<2>{a}{b}{c}
+  \insertframenumber/\inserttotalframenumber
+\end{frame}
+\begin{frame}[fragile]
+  \frametitle{Blocks}
+  \begin{block}{Block}Text\end{block}
+  \begin{alertblock}{Alert}Text\end{alertblock}
+  \begin{exampleblock}{Example}Text\end{exampleblock}
+  \begin{columns}[T]
+    \begin{column}{0.5\textwidth}Left\end{column}
+    \begin{column}{0.5\textwidth}Right\end{column}
+  \end{columns}
+  \begin{overprint}
+    \onslide<1>Text
+  \end{overprint}
+\end{frame}
+\appendix
+\begin{frame}[allowframebreaks]{References}
+  \beamertemplatenavigationsymbolsempty
+\end{frame}
+\end{document}

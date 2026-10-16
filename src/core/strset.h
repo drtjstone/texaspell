@@ -1,4 +1,5 @@
-/* strset.h - a simple open-addressing hash set of strings. */
+/* strset.h - a simple open-addressing hash set of strings, each carrying
+ * an unsigned value (0 when added). */
 #ifndef TEXASPELL_STRSET_H
 #define TEXASPELL_STRSET_H
 
@@ -6,6 +7,7 @@
 
 typedef struct strset {
     char **slots;
+    unsigned *vals; /* vals[i] belongs to slots[i] */
     size_t cap;   /* always a power of two */
     size_t count;
 } strset;
@@ -20,6 +22,9 @@ int strset_add(strset *s, const char *str);
 
 int strset_hasn(const strset *s, const char *str, size_t len);
 int strset_has(const strset *s, const char *str);
+
+/* The value stored with str, or NULL if str is not in the set. */
+unsigned *strset_valn(const strset *s, const char *str, size_t len);
 
 /* Iteration: for (size_t i = 0; i < s->cap; i++) if (s->slots[i]) ... */
 

@@ -18,6 +18,7 @@ static uint64_t hash_bytes(const char *p, size_t n)
 void strset_init(strset *s)
 {
     s->slots = NULL;
+    s->vals = NULL;
     s->cap = 0;
     s->count = 0;
 }
@@ -27,6 +28,7 @@ void strset_free(strset *s)
     for (size_t i = 0; i < s->cap; i++)
         free(s->slots[i]);
     free(s->slots);
+    free(s->vals);
     strset_init(s);
 }
 
@@ -39,8 +41,12 @@ static int grow(strset *s)
 {
     size_t ncap = s->cap ? s->cap * 2 : 1024;
     char **nslots = calloc(ncap, sizeof *nslots);
-    if (!nslots)
+    unsigned *nvals = calloc(ncap, sizeof *nvals);
+    if (!nslots || !nvals) {
+        free(nslots);
+        free(nvals);
         return -1;
+    }
     for (size_t i = 0; i < s->cap; i++) {
         char *v = s->slots[i];
         if (!v)
@@ -49,9 +55,12 @@ static int grow(strset *s)
         while (nslots[j])
             j = (j + 1) & (ncap - 1);
         nslots[j] = v;
+        nvals[j] = s->vals[i];
     }
     free(s->slots);
+    free(s->vals);
     s->slots = nslots;
+    s->vals = nvals;
     s->cap = ncap;
     return 0;
 }
@@ -72,6 +81,7 @@ int strset_addn(strset *s, const char *str, size_t len)
     memcpy(copy, str, len);
     copy[len] = '\0';
     s->slots[j] = copy;
+    s->vals[j] = 0;
     s->count++;
     return 1;
 }
@@ -97,4 +107,17 @@ int strset_hasn(const strset *s, const char *str, size_t len)
 int strset_has(const strset *s, const char *str)
 {
     return strset_hasn(s, str, strlen(str));
+}
+
+unsigned *strset_valn(const strset *s, const char *str, size_t len)
+{
+    if (!s->cap)
+        return NULL;
+    size_t j = hash_bytes(str, len) & (s->cap - 1);
+    while (s->slots[j]) {
+        if (slot_matches(s->slots[j], str, len))
+            return &s->vals[j];
+        j = (j + 1) & (s->cap - 1);
+    }
+    return NULL;
 }

@@ -100,6 +100,10 @@ static spec_entry cmd_specs[] = {
     {"colorlet", "SS"}, {"fontsize", "KK"}, {"usefont", "SSSS"},
     {"fontfamily", "S"}, {"setmainfont", "kSk"}, {"setsansfont", "kSk"},
     {"setmonofont", "kSk"}, {"setmathfont", "kSk"},
+    {"usetheme", "kS"}, {"usecolortheme", "kS"}, {"usefonttheme", "kS"},
+    {"useinnertheme", "kS"}, {"useoutertheme", "kS"},
+    {"setbeamercolor", "SK"}, {"setbeamerfont", "SK"},
+    {"setbeamertemplate", "SkK"}, {"setbeamersize", "K"},
     {"usetikzlibrary", "S"}, {"tikzset", "K"}, {"pgfplotsset", "K"},
     {"usepgfplotslibrary", "S"}, {"tikz", "kK"},
     {"geometry", "O"}, {"newgeometry", "O"}, {"captionsetup", "kO"},
@@ -132,6 +136,8 @@ static spec_entry cmd_specs[] = {
     {"acp", "S"}, {"acf", "S"}, {"acsp", "S"}, {"aclp", "S"}, {"acfp", "S"},
     {"newacronym", "kSKP"}, {"newglossaryentry", "SK"},
     {"DeclareAcronym", "SK"},
+    /* chemistry: formulae, not prose */
+    {"ce", "S"}, {"pu", "S"},
 };
 
 typedef enum { ENV_PLAIN, ENV_MATH, ENV_VERB, ENV_KV, ENV_LANG } env_kind;
@@ -1507,7 +1513,14 @@ static const char *const env_definers[] = {
     "DeclareFloatingEnvironment", "lstnewenvironment", "newtcolorbox",
     "newtcblisting", "newtcbtheorem", "NewTColorBox", "DeclareTColorBox",
     "NewTCBListing", "newmdenv", "newlist", "surroundwithmdframed",
+    "newcases", "renewcases",
     NULL
+};
+
+static const char *const alg_definers[] = {
+    "algdef", "algblock", "algblockdefx", "algblockx", "algloop",
+    "algloopdefx", "algcblock", "algcblockdefx", "algcblockx", "algcloop",
+    "algcloopdefx", NULL
 };
 
 static const char *const package_loaders[] = {
@@ -1635,6 +1648,57 @@ static int key_macro(const ts_callbacks *cb, const char *name, size_t nl)
     return 1;
 }
 
+/* Commands whose next control word is the name of a command being
+ * defined: \def\foo, \newcommand{\foo}, \DeclareMathSymbol{\alpha}... */
+static const char *const definers[] = {
+    "def", "gdef", "edef", "xdef", "let", "futurelet", "chardef",
+    "mathchardef", "countdef", "dimendef", "skipdef", "toksdef", "font",
+    "newcommand", "renewcommand", "providecommand", "DeclareRobustCommand",
+    "NewDocumentCommand", "RenewDocumentCommand", "ProvideDocumentCommand",
+    "DeclareDocumentCommand", "NewExpandableDocumentCommand",
+    "RenewExpandableDocumentCommand", "DeclareExpandableDocumentCommand",
+    "NewCommandCopy", "RenewCommandCopy", "DeclareCommandCopy",
+    "newrobustcmd", "renewrobustcmd", "providerobustcmd", "robustify",
+    "DeclareTextFontCommand", "DeclareOldFontCommand", "DeclareMathSymbol",
+    "DeclareMathAlphabet", "DeclareSymbolFontAlphabet", "DeclareMathAccent",
+    "DeclareMathDelimiter", "DeclareMathRadical", "DeclareMathOperator",
+    "DeclareTextSymbol", "DeclareTextCommand", "DeclareTextAccent",
+    "DeclareTextCommandDefault", "DeclareTextSymbolDefault",
+    "ProvideTextCommand", "ProvideTextCommandDefault", "DeclareTextComposite",
+    "DeclareUnicodeCharacter", "DeclarePairedDelimiter",
+    "DeclarePairedDelimiterX", "DeclareSIUnit", "DeclareSIPrefix",
+    "DeclareSIPower", "DeclareSIQualifier", "newlength", "newcount",
+    "newdimen", "newskip", "newmuskip", "newtoks", "newbox", "newread",
+    "newwrite", "newif", "newsavebox", "newlanguage", "newinsert", "newfam",
+    "algnewcommand", "algrenewcommand", "newtheorem", "newcolumntype",
+    "pgfkeys", "tikzset", NULL
+};
+
+/* May come between a definer and the name: \global\let\foo,
+ * \expandafter\def\csname ... */
+static const char *const def_prefixes[] = {
+    "global", "long", "protected", "outer", "expandafter", "noexpand",
+    "relax", NULL
+};
+
+static int is_definer(const char *name, size_t len)
+{
+    if (name_in(name, len, definers))
+        return 1;
+    /* expl3: \cs_new:Npn \Foo, \cs_gset_protected:Npn \Foo, ...
+     * siunitx: \siunitx_declare_unit:Nn \metre, ..._prefix:Nnn \kilo */
+    static const char *const expl[] = {
+        "cs_new", "cs_set", "cs_gset", "cs_gnew", "siunitx_declare"
+    };
+    for (size_t i = 0; i < sizeof expl / sizeof expl[0]; i++) {
+        size_t l = strlen(expl[i]);
+        if (len > l && memcmp(name, expl[i], l) == 0 &&
+            (name[l] == ':' || name[l] == '_'))
+            return 1;
+    }
+    return 0;
+}
+
 static int all_letters(const char *s, size_t len)
 {
     if (!len)
@@ -1645,8 +1709,9 @@ static int all_letters(const char *s, size_t len)
     return 1;
 }
 
-/* After an env-defining or package-loading command: skip '*', spaces and
- * optional [..] arguments; return the position of '{' or n. */
+/* After an env-defining or package-loading command: skip '*', spaces,
+ * optional [..] arguments and beamer overlay specifications <..>; return
+ * the position of '{' or n. */
 static size_t to_brace_arg(const scanner *sc, size_t q)
 {
     for (;;) {
@@ -1657,6 +1722,16 @@ static size_t to_brace_arg(const scanner *sc, size_t q)
         if (q < sc->n && sc->s[q] == '[') {
             q = match_bracket(sc->s, sc->n, q) + 1;
             continue;
+        }
+        if (q < sc->n && sc->s[q] == '<') {
+            size_t r = q + 1;
+            while (r < sc->n && r < q + 64 && sc->s[r] != '>' && sc->s[r] != '{' &&
+                   sc->s[r] != '\n')
+                r++;
+            if (r < sc->n && sc->s[r] == '>') {
+                q = r + 1;
+                continue;
+            }
         }
         break;
     }
@@ -1676,6 +1751,7 @@ void ts_scan_package(const char *src, size_t len, const ts_callbacks *cb,
     sc->expl = 1; /* treat _ and : as letters so expl3 names are excluded */
 
     size_t p = 0;
+    int defining = 0; /* how many of the next control words are defined */
     while (p < len) {
         char c = src[p];
         if (c == '%') {
@@ -1694,8 +1770,19 @@ void ts_scan_package(const char *src, size_t len, const ts_callbacks *cb,
         if (nl == 0 || !is_cmd_letter(sc, (unsigned char)name[0]))
             continue;
 
+        int was_defining = defining;
         if (all_letters(name, nl))
-            define(cb, TS_DEF_COMMAND, name, nl);
+            define(cb, TS_DEF_MENTION, name, nl);
+        if (was_defining && !name_in(name, nl, def_prefixes)) {
+            /* (\global\let\foo: a prefix keeps us waiting for the name) */
+            if (all_letters(name, nl))
+                define(cb, TS_DEF_COMMAND, name, nl);
+            defining--;
+        }
+        if (is_definer(name, nl)) {
+            /* \siunitx_declare_power:NNn \square \squared defines two */
+            defining = nl >= 21 && memcmp(name, "siunitx_declare_power", 21) == 0 ? 2 : 1;
+        }
 
         key_macro(cb, name, nl);
 
@@ -1711,6 +1798,26 @@ void ts_scan_package(const char *src, size_t len, const ts_callbacks *cb,
                     define_key_list(cb, src, a, b);
             }
             break;
+        }
+
+        /* algorithmicx: \algdef{SE}[IF]{If}{EndIf}... defines \If, \EndIf */
+        if (name_in(name, nl, alg_definers)) {
+            int skip_first = name_is(name, nl, "algdef");
+            size_t a, b;
+            for (int k = skip_first; nth_brace_arg(src, len, p, k, &a, &b); k++) {
+                /* stop at the first argument that is not a bare name, or
+                 * at an [n] argument count */
+                size_t prev_end = b;
+                trim(src, &a, &b);
+                if (!all_letters(src + a, b - a))
+                    break;
+                define(cb, TS_DEF_COMMAND, src + a, b - a);
+                size_t q = prev_end + 1;
+                while (q < len && (src[q] == ' ' || src[q] == '\n'))
+                    q++;
+                if (q < len && src[q] == '[')
+                    break;
+            }
         }
 
         if (name_in(name, nl, env_definers)) {

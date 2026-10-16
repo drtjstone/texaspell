@@ -208,6 +208,36 @@ after `make install`:
    for `TeXAspell`, and note any messages. The service logs its dictionary and
    settings folder when it starts. Also run `texaspell --info`.
 
+## Tests
+
+`make test` builds the command-line checker and runs:
+
+- **Correct-command documents.** `tests/fixtures/valid-commands.tex` uses
+  around 600 correct commands, environments and options from the LaTeX
+  kernel and about 50 popular packages (amsmath, mathtools, siunitx, tikz,
+  pgfplots, hyperref, cleveref, natbib, booktabs, listings, algpseudocode,
+  glossaries, fancyhdr and others). `valid-beamer.tex` does the same for
+  beamer. TeXAspell must flag nothing in either file.
+- **Typos.** `tests/typos.txt` lists over 200 realistic mistakes in command,
+  maths, environment and option names (`\sectoin`, `\txtbf`, `$\alpah$`,
+  `\begin{itemzie}`, `\hypersetup{pdftitel=..}`, ...). Each must be flagged,
+  with the intended name among the first five suggestions. Run
+  `VERBOSE=1 sh tests/typos.sh` to see which corrections are not the first
+  suggestion.
+- **Sample documents.** These cover prose, maths, verbatim, fragments of
+  documents, option lists and mixed languages, each compared with its
+  expected output.
+- **Behaviour checks.** These cover learning and forgetting words, remembered
+  packages, `-ise` spellings, acronyms, and choosing a language.
+
+Tests that need something you haven't installed say `skip` and why. For
+example, the large documents need their packages, and `languages.tex` needs
+the German and French aspell dictionaries. Anything else that isn't `ok` is
+a real failure.
+
+To add a typo test, add a line to `tests/typos.txt`. To check another
+package, add commands that use it to `valid-commands.tex`.
+
 ## Uninstall
 
 ```sh

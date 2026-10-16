@@ -24,6 +24,11 @@ for tex in "$here"/fixtures/*.tex; do
         echo "skip  $name (needs the de_DE and fr_FR aspell dictionaries)"
         continue
     fi
+    missing=$(sh "$here/packages-needed.sh" "$tex")
+    if [ -n "$missing" ]; then
+        echo "skip  $name (TeX packages not installed: $missing)"
+        continue
+    fi
     actual=$(cd "$here/fixtures" && "$bin" "$name")
     if [ "$actual" = "$(cat "$expected")" ]; then
         echo "ok    $name"
@@ -57,5 +62,13 @@ printf 'colour' | "$bin" -L en_US >/dev/null
 if [ $? -eq 1 ]; then echo "ok    en_US dictionary selectable"; else echo "FAIL  en_US dictionary selectable"; fail=1; fi
 check "unknown hyperref option flagged" '\usepackage{hyperref}\hypersetup{pdftitel={A}}' 1
 check "pdftitle text is spell-checked" '\usepackage{hyperref}\hypersetup{pdftitle={Finanse}}' 1
+
+# Command, environment and option typos
+missing=$(sh "$here/packages-needed.sh" "$here/fixtures/valid-commands.tex")
+if [ -n "$missing" ]; then
+    echo "skip  typos (TeX packages not installed: $missing)"
+elif ! sh "$here/typos.sh" "$bin"; then
+    fail=1
+fi
 
 exit $fail

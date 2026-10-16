@@ -29,6 +29,7 @@ typedef enum {
 
 typedef enum {
     TS_DEF_COMMAND,     /* \newcommand{\foo}, \def\foo, ...  name = "foo"   */
+    TS_DEF_MENTION,     /* package files only: \foo appears, defined or not */
     TS_DEF_ENVIRONMENT, /* \newenvironment{foo}, \newtheorem{foo}, ...      */
     TS_DEF_COUNTER,     /* \newcounter{foo}  (implies \thefoo)              */
     TS_DEF_PACKAGE,     /* \usepackage{foo}, \RequirePackage{foo}           */
@@ -54,7 +55,8 @@ void ts_scan(const char *src, size_t len, const ts_callbacks *cb);
 
 /* Scan a package/class/kernel file (.sty, .cls, .ltx, ...) for the names it
  * makes available. Reports every control word made only of letters as
- * TS_DEF_COMMAND, environment names as TS_DEF_ENVIRONMENT, option keys as
+ * TS_DEF_MENTION, and those it defines (\def\foo, \newcommand\foo,
+ * \DeclareMathSymbol{\foo}, ...) also as TS_DEF_COMMAND; environment names as TS_DEF_ENVIRONMENT, option keys as
  * TS_DEF_KEY, and files it
  * loads as TS_DEF_PACKAGE / TS_DEF_CLASS. Files read with \input are
  * reported through `input` (name as written, may lack an extension). */

@@ -603,6 +603,8 @@ static void on_doc_define(void *ctx, ts_def_kind kind, const char *name, size_t 
     collect *c = ctx;
     texaspell *ta = c->ta;
     switch (kind) {
+    case TS_DEF_MENTION:
+        break;
     case TS_DEF_COMMAND:
         add_user_name(ta, 0, name, len);
         break;

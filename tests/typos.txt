@@ -1,0 +1,253 @@
+# Command, environment and option typos, one per line:
+#   <snippet as typed>  <correction that must be among the first 5 suggestions>
+# Each snippet is checked on its own line after the preamble of
+# fixtures/valid-commands.tex. Blank lines and lines starting with # are ignored.
+
+# Document structure
+\documentclas           \documentclass
+\usepackge              \usepackage
+\usepakage              \usepackage
+\beign                  \begin
+\bgein                  \begin
+\maketitel              \maketitle
+\titel                  \title
+\autor                  \author
+\tody                   \today
+\tableofcontent         \tableofcontents
+\listoffigure           \listoffigures
+\apendix                \appendix
+\chpater                \chapter
+\sectoin                \section
+\secton                 \section
+\subsecton              \subsection
+\subsubsetion           \subsubsection
+\paragrah               \paragraph
+
+# Text formatting
+\textbt                 \textbf
+\txtbf                  \textbf
+\textfb                 \textbf
+\textti                 \textit
+\txtit                  \textit
+\texxtit                \textit
+\textcs                 \textsc
+\textt                  \texttt
+\emhp                   \emph
+\empth                  \emph
+\undreline              \underline
+\bfseris                \bfseries
+\itshap                 \itshape
+\ttfamly                \ttfamily
+\smal                   \small
+\Larg                   \Large
+\larg                   \large
+\footnotsize            \footnotesize
+\scriptszie             \scriptsize
+\normalszie             \normalsize
+\Hueg                   \Huge
+
+# Spacing and layout
+\newpgae                \newpage
+\clearpgae              \clearpage
+\noindnet               \noindent
+\vspce                  \vspace
+\hspce                  \hspace
+\smallksip              \smallskip
+\medksip                \medskip
+\bigskp                 \bigskip
+\centring               \centering
+\centerng               \centering
+\raggedrigth            \raggedright
+\linebrek               \linebreak
+\onehalfspaing          \onehalfspacing
+
+# Cross references, citations, links
+\lable                  \label
+\labl                   \label
+\reff                   \ref
+\pagref                 \pageref
+\eqrf                   \eqref
+\ctie                   \cite
+\cit                    \cite
+\citp                   \citep
+\citeuthor              \citeauthor
+\cerf                   \cref
+\Cerf                   \Cref
+\autorf                 \autoref
+\fotnote                \footnote
+\footnot                \footnote
+\hyperef                \hyperref
+\hrf                    \href
+\ulr                    \url
+\enqoute                \enquote
+\glss                   \gls
+\acrshrot               \acrshort
+\tood                   \todo
+
+# Floats and tables
+\includegrahpics        \includegraphics
+\inlcudegraphics        \includegraphics
+\includegraphic         \includegraphics
+\captoin                \caption
+\capton                 \caption
+\toprul                 \toprule
+\midrul                 \midrule
+\bottomrul              \bottomrule
+\cmidurle               \cmidrule
+\hilne                  \hline
+\multicolum             \multicolumn
+\multirwo               \multirow
+\textcolr               \textcolor
+\colr                   \color
+\defincolor             \definecolor
+\rotatbox               \rotatebox
+
+# Definitions and programming
+\newcomand              \newcommand
+\renewcomand            \renewcommand
+\newenviroment          \newenvironment
+\newtheroem             \newtheorem
+\DeclareMathOperater    \DeclareMathOperator
+\setlenght              \setlength
+\setcountr              \setcounter
+\ifthenels              \ifthenelse
+\newboolen              \newboolean
+\AtBeginDocumnet        \AtBeginDocument
+\xspce                  \xspace
+\itme                   \item
+\tiem                   \item
+
+# Mathematics: Greek letters
+$\alpah$                \alpha
+$\aplha$                \alpha
+$\bata$                 \beta
+$\gama$                 \gamma
+$\Gama$                 \Gamma
+$\delt$                 \delta
+$\epsilom$              \epsilon
+$\varepsilom$           \varepsilon
+$\lamda$                \lambda
+$\lambada$              \lambda
+$\sigam$                \sigma
+$\omgea$                \omega
+$\thetha$               \theta
+$\Omgea$                \Omega
+
+# Mathematics: structures and symbols
+$\frca{a}{b}$           \frac
+$\farc{a}{b}$           \frac
+$\dfarc{a}{b}$          \dfrac
+$\sqtr{x}$              \sqrt
+$\smu$                  \sum
+$\prdo$                 \prod
+$\intt$                 \int
+$\lmi$                  \lim
+$\infy$                 \infty
+$\infinty$              \infty
+$\partail$              \partial
+$\nabal$                \nabla
+$\leftt($               \left
+$\rigth)$               \right
+$\lagle$                \langle
+$\rangel$               \rangle
+$\cdto$                 \cdot
+$\cdtos$                \cdots
+$\ldtos$                \ldots
+$\tiems$                \times
+$\lqe$                  \leq
+$\gqe$                  \geq
+$\approxx$              \approx
+$\equv$                 \equiv
+$\rightarow$            \rightarrow
+$\Rigtharrow$           \Rightarrow
+$\leftarow$             \leftarrow
+$\mapto$                \mapsto
+$\substeq$              \subseteq
+$\emptset$              \emptyset
+$\forrall$              \forall
+$\exsits$               \exists
+$\overlien{x}$          \overline
+$\widehta{x}$           \widehat
+$\tillde{x}$            \tilde
+$\mathbbb{R}$           \mathbb
+$\mathcl{L}$            \mathcal
+$\matrhm{d}$            \mathrm
+$\mathbg{x}$            \mathbf
+$\operatornam{rank}$    \operatorname
+$\boldsymol{x}$         \boldsymbol
+$\tetx{if}$             \text
+$\binon{n}{k}$          \binom
+$\pmdo{n}$              \pmod
+$\qaud$                 \quad
+$\qqaud$                \qquad
+$\sni x$                \sin
+$\cso x$                \cos
+$\lgo x$                \log
+$\epx x$                \exp
+
+# Packages
+\Si{3}{\metre}          \SI
+\nmu{3}                 \num
+\si{\metr}              \metre
+\si{\kilogramm}         \kilogram
+\si{\secnod}            \second
+\si{\percnet}           \percent
+\si{\degreeCelcius}     \degreeCelsius
+\drwa (0,0) -- (1,1);   \draw
+\ndoe at (0,0) {};      \node
+\filldarw (0,0);        \filldraw
+\foreahc \x in {1,2}    \foreach
+\addplto coordinates {}  \addplot
+\legned{a}              \legend
+\tikzst{}               \tikzset
+\fancyehad{}            \fancyhead
+\lstinputlistng{a.py}   \lstinputlisting
+\Stat $x$               \State
+\EndIff                 \EndIf
+\Retrun                 \Return
+\lipusm                 \lipsum
+\includpdf{a.pdf}       \includepdf
+\makeclel{a}            \makecell
+
+# Environments
+\begin{itemzie}         itemize
+\begin{itemise}         itemize
+\begin{enumarate}       enumerate
+\begin{enumrate}        enumerate
+\begin{descripton}      description
+\begin{figur}           figure
+\begin{tabel}           table
+\begin{tabluar}         tabular
+\begin{tabularxx}       tabularx
+\begin{equaiton}        equation
+\begin{aling}           align
+\begin{aling*}          align*
+\begin{gahter}          gather
+\begin{mulitline}       multline
+\begin{centre}          center
+\begin{flushlfet}       flushleft
+\begin{minipge}         minipage
+\begin{quotaton}        quotation
+\begin{abstarct}        abstract
+\begin{docment}         document
+\begin{pmatirx}         pmatrix
+\begin{bmatrx}          bmatrix
+\begin{casess}          cases
+\begin{proff}           proof
+\begin{tikzpictur}      tikzpicture
+\begin{lstlistnig}      lstlisting
+\begin{subfigur}        subfigure
+\begin{longtabel}       longtable
+\begin{multicol}        multicols
+
+# Options
+\hypersetup{pdftitel=x}         pdftitle
+\hypersetup{colourlinks}        colorlinks
+\hypersetup{linkcolour=red}     linkcolor
+\hypersetup{urlcolour=red}      urlcolor
+\geometry{lefft=1cm}            left
+\geometry{marign=1cm}           margin
+\captionsetup{labelfnt=bf}      labelfont
+\lstset{breaklnes=true}         breaklines
+\sisetup{round-mod=places}      round-mode
+\setlist{leftmrgin=1em}         leftmargin
