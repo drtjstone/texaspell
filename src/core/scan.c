@@ -66,7 +66,7 @@ static spec_entry cmd_specs[] = {
     {"InputIfFileExists", "S"}, {"includegraphics", "kS"},
     {"graphicspath", "S"}, {"DeclareGraphicsExtensions", "S"},
     {"includepdf", "kS"}, {"lstinputlisting", "kS"}, {"inputminted", "kSS"},
-    {"url", "R"}, {"path", "R"}, {"nolinkurl", "R"}, {"href", "kSP"},
+    {"url", "R"}, {"path", "R"}, {"nolinkurl", "R"}, {"href", "kRP"},
     {"hyperref", "kP"}, {"hyperlink", "SP"}, {"hypertarget", "SP"},
     {"hypersetup", "O"}, {"pdfbookmark", "kPS"},
     /* definitions */
@@ -436,6 +436,20 @@ static size_t match_brace(const char *s, size_t n, size_t q)
         char c = s[i];
         if (c == '\\') { i++; continue; }
         if (c == '%') { while (i < n && s[i] != '\n') i++; continue; }
+        if (c == '{') d++;
+        else if (c == '}' && --d == 0) return i;
+    }
+    return n;
+}
+
+/* As match_brace, but for verbatim-like arguments (\lstinline{..},
+ * \mintinline{..}{..}) where % is a literal character, not a comment. */
+static size_t match_brace_raw(const char *s, size_t n, size_t q)
+{
+    int d = 0;
+    for (size_t i = q; i < n; i++) {
+        char c = s[i];
+        if (c == '\\') { i++; continue; }
         if (c == '{') d++;
         else if (c == '}' && --d == 0) return i;
     }
@@ -932,7 +946,7 @@ static size_t skip_verb_arg(const scanner *sc, size_t q)
     if (q >= sc->n)
         return q;
     if (sc->s[q] == '{') {
-        size_t close = match_brace(sc->s, sc->n, q);
+        size_t close = match_brace_raw(sc->s, sc->n, q);
         return close < sc->n ? close + 1 : sc->n;
     }
     char d = sc->s[q];
@@ -1587,9 +1601,34 @@ static int fragment_option_line(scanner *sc)
             "colorlinks", "linkcolor", "urlcolor", "citecolor", "filecolor",
             "bookmarks", "bookmarksnumbered", "hidelinks", NULL
         };
-        if (!pdf_key && !(sc->pdf_fragment &&
-                         name_in(s + ka, kb - ka, continuation_keys)))
+        int continuation = sc->pdf_fragment && name_in(s + ka, kb - ka, continuation_keys);
+        int known = !pdf_key && !continuation && sc->cb && sc->cb->is_option_key &&
+                    sc->cb->is_option_key(sc->cb->ctx, s + ka, kb - ka);
+        if (!pdf_key && !continuation && !known)
             break; /* ambiguous name=value text remains prose */
+        if (known && has_value && !(items > 0 || sc->pdf_fragment)) {
+            /* "width = the value" is prose: a first item named only by a
+             * known key needs a value without spaces, such as "blue" or
+             * "{2cm}" */
+            size_t v = q + 1;
+            while (v < n && (s[v] == ' ' || s[v] == '\t'))
+                v++;
+            int d = 0, spaced = 0;
+            for (; v < n && s[v] != '\n'; v++) {
+                if (s[v] == '{') d++;
+                else if (s[v] == '}') { if (d == 0) break; d--; }
+                else if (d == 0 && s[v] == ',') break;
+                else if (d == 0 && (s[v] == ' ' || s[v] == '\t')) {
+                    size_t w = v;
+                    while (w < n && (s[w] == ' ' || s[w] == '\t'))
+                        w++;
+                    if (w < n && s[w] != ',' && s[w] != '\n') spaced = 1;
+                    v = w - 1;
+                }
+            }
+            if (spaced)
+                break;
+        }
         /* the first item must be name=value; later ones may be bare names
          * ("bookmarks, hidelinks") */
         if (kb - ka < 2 || (!has_value &&
@@ -1617,7 +1656,7 @@ static int fragment_option_line(scanner *sc)
         size_t end = vb < n && s[vb] == ',' ? vb + 1 : vb;
 
         if (pdf_key) sc->pdf_fragment = 1;
-        int is_pdf = 1; /* recognised PDF fragment or a supported continuation */
+        int is_pdf = !known; /* a PDF option or one that follows it: check as hyperref's */
         if (sc->cb && sc->cb->option)
             sc->cb->option(sc->cb->ctx, is_pdf ? "hypersetup" : "", is_pdf ? 10 : 0,
                            s + ka, kb - ka, ka, kb);

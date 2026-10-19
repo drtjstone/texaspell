@@ -142,6 +142,7 @@ TeXAspell keeps plain-text files in
 | `commands.txt` | Your own commands (`\mymacro`), environments (`keypoint`) and option names (`myoption=`). **Learn Spelling** on a flagged command, environment or option adds it here. |
 | `auto-commands.txt` | Legacy file. No longer read or populated automatically. Move deliberately trusted entries to `commands.txt`. |
 | `words.txt` | Your own words. **Learn Spelling** adds them here. |
+| `recent-documents.txt` | The packages and definitions of recently checked full documents, used for partial text (see *Partial text* below). Written automatically; safe to delete. |
 
 After editing these files, restart the service with `pkill TeXAspell`. macOS
 starts it again the next time an app needs it.
@@ -171,11 +172,25 @@ chapter1.tex:19:4: spelling: recieve -> receive, receiver, relieve
   - If the text contains `\end{align}` (or another maths or verbatim
     environment) before any `\begin`, it assumes the text starts inside that
     environment.
-  - Definitions in the supplied text and included preambles apply to that
-    check only. To accept custom commands or packages in a fragment whose
-    preamble is unavailable, use **Learn Spelling**, `commands.txt` or
-    `packages.txt`. The service cannot infer document identity from the
-    spelling callbacks.
+  - Text containing `\documentclass` is checked as a whole document: only
+    its own packages and definitions (and those of its included preambles)
+    count. TeXAspell then remembers what that document loaded and defined.
+  - Text without `\documentclass` (a line or paragraph being typed) also
+    accepts the packages and definitions of the last few documents checked
+    in full (8 by default, kept in `recent-documents.txt`). So once a
+    document has been checked in full, by opening it or with **Check
+    Document Now**, typing `\ac{NDA}` or a `\newcommand` of its own is no
+    longer flagged. The service cannot tell which document a fragment comes
+    from, so a fragment of one document may accept a macro that only another
+    recent document defines. Set `remember_documents = 0` in `config.txt` to
+    turn this off; then use **Learn Spelling**, `commands.txt` or
+    `packages.txt` instead.
+  - A line of setup options on its own, such as
+    `colorlinks=true, linkcolor=blue,` from inside a multi-line
+    `\hypersetup{...}`, is recognised when its names are options of a setup
+    package in context (hyperref, geometry, caption, listings, siunitx,
+    enumitem). Its names are not spell-checked as words. A known name
+    followed by ordinary text (`width = the value`) is still prose.
 
   A line in the middle of a long `align` with neither a `\begin` nor an `\end`
   may have short variable names checked as words. For a whole-document check,

@@ -26,6 +26,14 @@ typedef struct cmddb {
 void cmddb_init(cmddb *db, const char *kpsewhich_setting);
 void cmddb_free(cmddb *db);
 int cmddb_copy(cmddb *dst, const cmddb *src);
+/* out = what full has beyond base (full having been loaded from a copy
+ * of base): the files it read since, their environments and keys, and
+ * for each command the number of those files mentioning it. */
+int cmddb_difference(cmddb *out, const cmddb *full, const cmddb *base);
+/* Add a difference to dst, as if its files had been loaded into dst.
+ * Files already read by dst are not counted twice when the whole
+ * difference has already been added. */
+int cmddb_merge(cmddb *dst, const cmddb *src);
 
 /* Load files (e.g. "latex.ltx", "amsmath.sty", "article.cls") and, through
  * them, everything they load. Names already tried are ignored. Returns the

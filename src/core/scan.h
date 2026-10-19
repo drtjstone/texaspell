@@ -50,6 +50,10 @@ typedef struct ts_callbacks {
      * cmd is the command it was given to (without backslash). */
     void (*option)(void *ctx, const char *cmd, size_t cmdlen,
                    const char *key, size_t keylen, size_t start, size_t end);
+    /* Is this the name of an option of a setup command (\hypersetup,
+     * \geometry, ...) that the context loads? Used to recognise a lone
+     * line of such a list while typing. May be NULL. */
+    int (*is_option_key)(void *ctx, const char *key, size_t len);
 } ts_callbacks;
 
 void ts_scan(const char *src, size_t len, const ts_callbacks *cb);

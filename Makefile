@@ -90,7 +90,11 @@ install: $(SERVICE) build/texaspell
 	@mkdir -p "$(SERVICES_DIR)" "$(PREFIX)/bin"
 	rm -rf "$(SERVICES_DIR)/TeXAspell.service"
 	cp -R -X $(SERVICE) "$(SERVICES_DIR)/"
-	cp build/texaspell "$(PREFIX)/bin/"
+	@# Replace rather than overwrite: macOS kills a signed binary whose
+	@# file was rewritten in place.
+	rm -f "$(PREFIX)/bin/texaspell"
+	cp build/texaspell "$(PREFIX)/bin/texaspell"
+	codesign --force --sign - "$(PREFIX)/bin/texaspell"
 	/System/Library/CoreServices/pbs -update
 	@echo
 	@echo "Installed, offering: $(LANGUAGES)"

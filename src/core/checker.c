@@ -15,6 +15,9 @@
 #include "strset.h"
 
 #define OPTION_PACKAGE_COUNT 6
+#define PACKAGE_CACHE 256    /* packages whose command lists are kept     */
+#define MAX_RECENT_DOCS 32   /* upper bound for remember_documents        */
+#define KIND_HISTORY 8       /* checks whose token categories are kept    */
 #define MAX_LANGS 32
 #define DEFAULT_LANGUAGE "en_GB"
 
@@ -34,6 +37,20 @@ typedef struct recent_word {
     speller *sp;
 } recent_word;
 
+/* One package (or class) read on its own, with everything it loads. */
+typedef struct package_entry {
+    char *name;
+    cmddb *db;     /* the package and what it loads, alone: for its keys */
+    cmddb *added;  /* what it adds to the base vocabulary: for documents */
+} package_entry;
+
+/* What a document checked in full loads and defines. Text checked without
+ * its preamble (as while typing) also accepts the names of recent
+ * documents. */
+typedef struct doc_context {
+    strset packages, cmds, envs;
+} doc_context;
+
 struct texaspell {
     char home[1024];
     char dictionary[128];
@@ -50,9 +67,20 @@ struct texaspell {
     int nlangs;
     cmddb db;
     cmddb base_db;       /* only explicitly configured packages/classes */
-    cmddb *option_dbs[OPTION_PACKAGE_COUNT]; /* isolated package dependency closures for keys */
+    package_entry pkgcache[PACKAGE_CACHE];
+    int npkgcache;
+    doc_context recent_docs[MAX_RECENT_DOCS]; /* newest first */
+    int nrecent_docs;
+    int remember_documents;  /* config: how many documents to remember */
+    cmddb fragment_db;       /* base + recent documents' packages        */
+    int fragment_db_valid;
+    strset fragment_cmds, fragment_envs; /* recent documents' definitions */
+    int is_fragment;         /* the current request has no \documentclass */
     strset inferred_cmds, inferred_envs;
-    strset recent_kinds; /* latest check only: kind+1, option owner in high bits */
+    /* token categories of recent checks (kind+1, option owner in high
+     * bits), newest at kinds_next */
+    strset kinds[KIND_HISTORY];
+    int kinds_next;
     strset words;        /* words.txt                                   */
     strset user_cmds;    /* explicitly learned commands from commands.txt */
     strset user_envs;
@@ -102,7 +130,12 @@ static const char default_config[] =
     "# your document is, so list the folders here. Files in your personal TeX\n"
     "# tree (~/Library/texmf/tex/latex) are found without this.\n"
     "#   input_dirs = ~/Documents/LaTeX:~/Work/Preambles\n"
-    "input_dirs =\n";
+    "input_dirs =\n"
+    "\n"
+    "# Text checked without its preamble (as while typing) also accepts the\n"
+    "# packages and \\newcommand definitions of this many documents most\n"
+    "# recently checked in full. 0 turns this off.\n"
+    "remember_documents = 8\n";
 
 static const char default_packages[] =
     "# Packages whose commands are always accepted, one per line.\n"
@@ -275,6 +308,11 @@ static void config_line(texaspell *ta, char *line)
         ta->min_word_length = atoi(val);
     else if (strcmp(key, "kpsewhich") == 0)
         snprintf(ta->kpsewhich, sizeof ta->kpsewhich, "%s", val);
+    else if (strcmp(key, "remember_documents") == 0) {
+        ta->remember_documents = atoi(val);
+        if (ta->remember_documents < 0) ta->remember_documents = 0;
+        if (ta->remember_documents > MAX_RECENT_DOCS) ta->remember_documents = MAX_RECENT_DOCS;
+    }
     else if (strcmp(key, "input_dirs") == 0)
         snprintf(ta->input_dirs, sizeof ta->input_dirs, "%s", val);
     else if (strcmp(key, "default_classes") == 0)
@@ -313,6 +351,101 @@ static void load_user_lists(texaspell *ta)
     each_line(ta, "words.txt", word_line);
     each_line(ta, "commands.txt", command_line);
     /* Legacy auto-commands.txt is deliberately not an implicit allowlist. */
+}
+
+/* ------------------------------------------------------------------------
+ * Recent documents (recent-documents.txt)
+ *
+ *   document
+ *   package biblatex.sty
+ *   command dept
+ *   environment keypoint
+ *   document
+ *   ...
+ * ---------------------------------------------------------------------- */
+
+static const char recent_docs_header[] =
+    "# Packages and definitions of the documents TeXAspell most recently\n"
+    "# checked in full, newest first. Text checked without its preamble (as\n"
+    "# while typing) also accepts these. Written automatically; safe to delete.\n";
+
+static void free_doc_context(doc_context *d)
+{
+    strset_free(&d->packages);
+    strset_free(&d->cmds);
+    strset_free(&d->envs);
+}
+
+static void load_recent_docs(texaspell *ta)
+{
+    char path[1100];
+    path_join(path, sizeof path, ta->home, "recent-documents.txt");
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return;
+    char buf[1024];
+    doc_context *d = NULL;
+    while (fgets(buf, sizeof buf, f)) {
+        size_t l = strlen(buf);
+        while (l && (buf[l - 1] == '\n' || buf[l - 1] == '\r' || buf[l - 1] == ' '))
+            buf[--l] = '\0';
+        if (!l || buf[0] == '#')
+            continue;
+        if (strcmp(buf, "document") == 0) {
+            if (ta->nrecent_docs >= ta->remember_documents) {
+                d = NULL;
+                continue;
+            }
+            d = &ta->recent_docs[ta->nrecent_docs++];
+            memset(d, 0, sizeof *d);
+        } else if (d && strncmp(buf, "package ", 8) == 0) {
+            strset_add(&d->packages, buf + 8);
+        } else if (d && strncmp(buf, "command ", 8) == 0) {
+            strset_add(&d->cmds, buf + 8);
+        } else if (d && strncmp(buf, "environment ", 12) == 0) {
+            strset_add(&d->envs, buf + 12);
+        }
+    }
+    fclose(f);
+}
+
+static void write_set(FILE *f, const char *label, const strset *s)
+{
+    for (size_t i = 0; i < s->cap; i++)
+        if (s->slots[i])
+            fprintf(f, "%s %s\n", label, s->slots[i]);
+}
+
+static void save_recent_docs(const texaspell *ta)
+{
+    char path[1100], tmp[1110];
+    path_join(path, sizeof path, ta->home, "recent-documents.txt");
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if (!f)
+        return;
+    fputs(recent_docs_header, f);
+    for (int i = 0; i < ta->nrecent_docs; i++) {
+        const doc_context *d = &ta->recent_docs[i];
+        fputs("document\n", f);
+        write_set(f, "package", &d->packages);
+        write_set(f, "command", &d->cmds);
+        write_set(f, "environment", &d->envs);
+    }
+    if (fclose(f) == 0)
+        rename(tmp, path);
+    else
+        remove(tmp);
+}
+
+static int sets_equal(const strset *a, const strset *b)
+{
+    if (a->count != b->count)
+        return 0;
+    for (size_t i = 0; i < a->cap; i++)
+        if (a->slots[i] && !strset_has(b, a->slots[i]))
+            return 0;
+    return 1;
 }
 
 static void default_home(char *out, size_t outlen)
@@ -393,6 +526,7 @@ texaspell *ta_open(const char *home, char *err, size_t errlen)
     ta->check_commands = 1;
     ta->skip_allcaps = 1;
     ta->min_word_length = 2;
+    ta->remember_documents = 8;
 
     strset_init(&ta->words);
     strset_init(&ta->user_cmds);
@@ -414,6 +548,7 @@ texaspell *ta_open(const char *home, char *err, size_t errlen)
         snprintf(ta->dictionary, sizeof ta->dictionary, "%s", dict_override);
     each_line(ta, "packages.txt", package_line);
     load_user_lists(ta);
+    load_recent_docs(ta);
 
     char aerr[512] = "";
     ta->default_sp = ta->sp = speller_open(ta->dictionary, aerr, sizeof aerr);
@@ -452,12 +587,27 @@ void ta_close(texaspell *ta)
         speller_close(ta->langs[i].sp);
     cmddb_free(&ta->db);
     cmddb_free(&ta->base_db);
-    for (int i = 0; i < OPTION_PACKAGE_COUNT; i++) {
-        if (ta->option_dbs[i]) { cmddb_free(ta->option_dbs[i]); free(ta->option_dbs[i]); }
+    for (int i = 0; i < ta->npkgcache; i++) {
+        free(ta->pkgcache[i].name);
+        for (int k = 0; k < 2; k++) {
+            cmddb *db = k ? ta->pkgcache[i].added : ta->pkgcache[i].db;
+            if (db) cmddb_free(db);
+            free(db);
+        }
     }
+    for (int i = 0; i < ta->nrecent_docs; i++) {
+        strset_free(&ta->recent_docs[i].packages);
+        strset_free(&ta->recent_docs[i].cmds);
+        strset_free(&ta->recent_docs[i].envs);
+    }
+    if (ta->fragment_db_valid)
+        cmddb_free(&ta->fragment_db);
+    strset_free(&ta->fragment_cmds);
+    strset_free(&ta->fragment_envs);
     strset_free(&ta->inferred_cmds);
     strset_free(&ta->inferred_envs);
-    strset_free(&ta->recent_kinds);
+    for (int i = 0; i < KIND_HISTORY; i++)
+        strset_free(&ta->kinds[i]);
     strset_free(&ta->words);
     strset_free(&ta->user_cmds);
     strset_free(&ta->user_envs);
@@ -601,7 +751,8 @@ static void add_token(collect *c, int kind, const char *t, size_t len,
         c->text = nt;
         c->tcap = ncap;
     }
-    memcpy(c->text + c->tl, t, len);
+    if (len)
+        memcpy(c->text + c->tl, t, len);
     if (clen)
         memcpy(c->text + c->tl + len, cmd, clen);
     c->v[c->n++] = (tok){kind, start, end, c->tl, len, c->tl + len, clen};
@@ -759,7 +910,7 @@ static char *find_input(texaspell *ta, const char *name)
  * within a request; there is no stale cross-document or negative cache. */
 static void follow_inputs(texaspell *ta, collect *c)
 {
-    ts_callbacks cb = {c, NULL, on_doc_define, NULL};
+    ts_callbacks cb = {c, NULL, on_doc_define, NULL, NULL};
     int files = 0;
     for (size_t i = 0; i < c->ninputs && files < 50; i++) {
         const char *name = c->inputs[i];
@@ -783,12 +934,168 @@ static void follow_inputs(texaspell *ta, collect *c)
     }
 }
 
+/* The cache entry for a package, created if need be. NULL if the cache
+ * is full. */
+static package_entry *package_entry_for(texaspell *ta, const char *name)
+{
+    for (int i = 0; i < ta->npkgcache; i++)
+        if (strcmp(ta->pkgcache[i].name, name) == 0)
+            return &ta->pkgcache[i];
+    if (ta->npkgcache >= PACKAGE_CACHE)
+        return NULL;
+    char *copy = strdup(name);
+    if (!copy)
+        return NULL;
+    package_entry *e = &ta->pkgcache[ta->npkgcache++];
+    memset(e, 0, sizeof *e);
+    e->name = copy;
+    return e;
+}
+
+/* The command list of one package (or class) and everything it loads,
+ * read on its own, once per session. NULL if the cache is full. */
+static const cmddb *package_db(texaspell *ta, const char *name)
+{
+    package_entry *e = package_entry_for(ta, name);
+    if (!e)
+        return NULL;
+    if (!e->db) {
+        cmddb *db = calloc(1, sizeof *db);
+        if (!db)
+            return NULL;
+        cmddb_init(db, ta->kpsewhich);
+        cmddb_load(db, (const char *const *)&e->name, 1, NULL);
+        e->db = db;
+    }
+    return e->db;
+}
+
+/* What loading a package adds to the base vocabulary, read once per
+ * session: the files it reads that the base does not, and the commands
+ * they mention, counted as a fresh load would count them. */
+static const cmddb *package_additions(texaspell *ta, const char *name)
+{
+    package_entry *e = package_entry_for(ta, name);
+    if (!e)
+        return NULL;
+    if (!e->added) {
+        cmddb full, *added = calloc(1, sizeof *added);
+        if (!added)
+            return NULL;
+        if (!cmddb_copy(&full, &ta->base_db)) {
+            free(added);
+            return NULL;
+        }
+        cmddb_load(&full, (const char *const *)&e->name, 1, NULL);
+        int ok = cmddb_difference(added, &full, &ta->base_db);
+        cmddb_free(&full);
+        if (!ok) {
+            free(added);
+            return NULL;
+        }
+        e->added = added;
+    }
+    return e->added;
+}
+
+/* Add a package's commands to this request's working copy. */
+static void add_package(texaspell *ta, const char *name)
+{
+    if (cmddb_loaded(&ta->db, name))
+        return;
+    const cmddb *pdb = package_additions(ta, name);
+    if (!pdb || !cmddb_merge(&ta->db, pdb))
+        cmddb_load(&ta->db, &name, 1, NULL);
+}
+
 /* Load packages into this request's working copy of the base vocabulary. */
 static void load_document_packages(texaspell *ta, collect *c)
 {
-    if (!c->nfiles || !ta->check_commands)
+    if (!ta->check_commands)
         return;
-    cmddb_load(&ta->db, (const char *const *)c->files, c->nfiles, NULL);
+    for (size_t i = 0; i < c->nfiles; i++)
+        add_package(ta, c->files[i]);
+}
+
+/* The vocabulary for text without a preamble: the base packages plus the
+ * packages of recent full documents. Built when first needed after the
+ * recent documents change. */
+static const cmddb *fragment_base(texaspell *ta)
+{
+    if (ta->fragment_db_valid)
+        return &ta->fragment_db;
+    if (!cmddb_copy(&ta->fragment_db, &ta->base_db))
+        return &ta->base_db;
+    ta->fragment_db_valid = 1;
+    cmddb saved = ta->db;   /* add_package works on ta->db */
+    ta->db = ta->fragment_db;
+    strset_free(&ta->fragment_cmds);
+    strset_free(&ta->fragment_envs);
+    for (int d = 0; d < ta->nrecent_docs; d++) {
+        const doc_context *dc = &ta->recent_docs[d];
+        for (size_t i = 0; i < dc->packages.cap; i++)
+            if (dc->packages.slots[i] && ta->check_commands)
+                add_package(ta, dc->packages.slots[i]);
+        for (size_t i = 0; i < dc->cmds.cap; i++)
+            if (dc->cmds.slots[i])
+                strset_add(&ta->fragment_cmds, dc->cmds.slots[i]);
+        for (size_t i = 0; i < dc->envs.cap; i++)
+            if (dc->envs.slots[i])
+                strset_add(&ta->fragment_envs, dc->envs.slots[i]);
+    }
+    ta->fragment_db = ta->db;
+    ta->db = saved;
+    return &ta->fragment_db;
+}
+
+/* After a full-document check, remember what it loaded and defined. */
+static void remember_document(texaspell *ta, const collect *c)
+{
+    if (ta->remember_documents <= 0)
+        return;
+    doc_context d;
+    memset(&d, 0, sizeof d);
+    for (size_t i = 0; i < c->nfiles; i++)
+        if (cmddb_loaded(&ta->db, c->files[i]))
+            strset_add(&d.packages, c->files[i]);
+    for (size_t i = 0; i < ta->inferred_cmds.cap; i++)
+        if (ta->inferred_cmds.slots[i])
+            strset_add(&d.cmds, ta->inferred_cmds.slots[i]);
+    for (size_t i = 0; i < ta->inferred_envs.cap; i++)
+        if (ta->inferred_envs.slots[i])
+            strset_add(&d.envs, ta->inferred_envs.slots[i]);
+
+    /* Already the newest? Nothing to do. Elsewhere in the list? Move it. */
+    int found = -1;
+    for (int i = 0; i < ta->nrecent_docs; i++) {
+        const doc_context *o = &ta->recent_docs[i];
+        if (sets_equal(&o->packages, &d.packages) && sets_equal(&o->cmds, &d.cmds) &&
+            sets_equal(&o->envs, &d.envs)) {
+            found = i;
+            break;
+        }
+    }
+    if (found == 0) {
+        free_doc_context(&d);
+        return;
+    }
+    if (found > 0) {
+        free_doc_context(&d);
+        d = ta->recent_docs[found];
+        memmove(&ta->recent_docs[1], &ta->recent_docs[0], found * sizeof d);
+    } else {
+        if (ta->nrecent_docs >= ta->remember_documents)
+            free_doc_context(&ta->recent_docs[--ta->nrecent_docs]);
+        memmove(&ta->recent_docs[1], &ta->recent_docs[0], ta->nrecent_docs * sizeof d);
+        ta->nrecent_docs++;
+        /* the set of remembered names changed */
+        if (ta->fragment_db_valid) {
+            cmddb_free(&ta->fragment_db);
+            ta->fragment_db_valid = 0;
+        }
+    }
+    ta->recent_docs[0] = d;
+    save_recent_docs(ta);
 }
 
 static size_t utf8_chars(const char *s, size_t len)
@@ -855,7 +1162,8 @@ static int command_ok(texaspell *ta, const char *name, size_t len)
 {
     return cmddb_has_command(&ta->db, name, len) ||
            strset_hasn(&ta->user_cmds, name, len) ||
-           strset_hasn(&ta->inferred_cmds, name, len);
+           strset_hasn(&ta->inferred_cmds, name, len) ||
+           (ta->is_fragment && strset_hasn(&ta->fragment_cmds, name, len));
 }
 
 /* The package whose keys a setup command takes. Keys are only checked when
@@ -890,15 +1198,8 @@ static int option_index(const char *pkg)
 static const cmddb *option_db(texaspell *ta, int index)
 {
     if (index < 0 || index >= OPTION_PACKAGE_COUNT) return &ta->db;
-    if (!ta->option_dbs[index]) {
-        cmddb *db = calloc(1, sizeof *db);
-        if (!db) return &ta->db;
-        cmddb_init(db, ta->kpsewhich);
-        const char *name = option_packages[index];
-        cmddb_load(db, &name, 1, NULL);
-        ta->option_dbs[index] = db;
-    }
-    return ta->option_dbs[index];
+    const cmddb *db = package_db(ta, option_packages[index]);
+    return db ? db : &ta->db;
 }
 
 static int option_ok(texaspell *ta, const char *cmd, size_t clen,
@@ -915,42 +1216,75 @@ static int environment_ok(texaspell *ta, const char *name, size_t len)
 {
     if (cmddb_has_environment(&ta->db, name, len) ||
         strset_hasn(&ta->user_envs, name, len) ||
-        strset_hasn(&ta->inferred_envs, name, len))
+        strset_hasn(&ta->inferred_envs, name, len) ||
+        (ta->is_fragment && strset_hasn(&ta->fragment_envs, name, len)))
         return 1;
     if (len > 1 && name[len - 1] == '*' &&
         (strset_hasn(&ta->user_envs, name, len - 1) ||
-         strset_hasn(&ta->inferred_envs, name, len - 1)))
+         strset_hasn(&ta->inferred_envs, name, len - 1) ||
+         (ta->is_fragment && strset_hasn(&ta->fragment_envs, name, len - 1))))
         return 1;
+    return 0;
+}
+
+/* A lone line such as "colorlinks=true, linkcolor=blue," while typing:
+ * is the name an option of a setup package this context loads? */
+static int on_is_option_key(void *ctx, const char *key, size_t len)
+{
+    texaspell *ta = ((collect *)ctx)->ta;
+    if (!ta->check_commands)
+        return 0;
+    const cmddb *ctxdb = fragment_base(ta);
+    for (int i = 0; option_packages[i]; i++) {
+        if (!cmddb_loaded(ctxdb, option_packages[i]))
+            continue;
+        const cmddb *db = package_db(ta, option_packages[i]);
+        if (db && cmddb_has_key(db, key, len))
+            return 1;
+    }
     return 0;
 }
 
 size_t ta_check(texaspell *ta, const char *text, size_t len,
                 ta_issue **out, size_t *nwords)
 {
-    /* A request has no implicit identity tying it to the last document. */
+    strset_free(&ta->inferred_cmds);
+    strset_free(&ta->inferred_envs);
+    strset_free(&ta->inputs_done);
+    ta->kinds_next = (ta->kinds_next + 1) % KIND_HISTORY;
+    strset *kinds = &ta->kinds[ta->kinds_next];
+    strset_free(kinds);
+    ta->doc_lang[0] = '\0';
+    collect c = {0};
+    c.ta = ta;
+    ts_callbacks cb = {&c, on_token, on_doc_define, on_option, on_is_option_key};
+    ts_scan(text, len, &cb);
+    follow_inputs(ta, &c);
+
+    /* A full document (it has \documentclass) is checked against its own
+     * packages and definitions only. Text without a preamble, as sent
+     * while typing, also accepts those of recent full documents. */
+    ta->is_fragment = !c.saw_class;
     cmddb fresh;
-    if (!cmddb_copy(&fresh, &ta->base_db)) {
+    if (!cmddb_copy(&fresh, ta->is_fragment ? fragment_base(ta) : &ta->base_db)) {
         snprintf(ta->warning, sizeof ta->warning, "out of memory preparing check");
         *out = NULL;
         if (nwords) *nwords = 0;
+        free(c.v);
+        free(c.text);
+        for (size_t i = 0; i < c.nfiles; i++)
+            free(c.files[i]);
+        free(c.files);
+        for (size_t i = 0; i < c.ninputs; i++)
+            free(c.inputs[i]);
+        free(c.inputs);
         return 0;
     }
     cmddb_free(&ta->db);
     ta->db = fresh;
-    strset_free(&ta->inferred_cmds);
-    strset_free(&ta->inferred_envs);
-    strset_free(&ta->inputs_done);
-    strset_free(&ta->recent_kinds);
-    memset(ta->recent_words, 0, sizeof ta->recent_words);
-    ta->recent_next = 0;
-    ta->doc_lang[0] = '\0';
-    collect c = {0};
-    c.ta = ta;
-    ts_callbacks cb = {&c, on_token, on_doc_define, on_option};
-    ts_scan(text, len, &cb);
-
-    follow_inputs(ta, &c);
     load_document_packages(ta, &c);
+    if (!ta->is_fragment)
+        remember_document(ta, &c);
 
     /* A declaration applies to this request, not to unrelated later text. */
     if (c.have_main_lang)
@@ -997,8 +1331,8 @@ size_t ta_check(texaspell *ta, const char *text, size_t len,
             kind = TA_OPTION;
             break;
         }
-        strset_addn(&ta->recent_kinds, w, t->tlen);
-        unsigned *category = strset_valn(&ta->recent_kinds, w, t->tlen);
+        strset_addn(kinds, w, t->tlen);
+        unsigned *category = strset_valn(kinds, w, t->tlen);
         if (category) {
             unsigned next = (unsigned)kind + 1;
             if (kind == TA_OPTION) {
@@ -1046,14 +1380,28 @@ static size_t suggest_names(texaspell *ta, cmddb_kind kind,
 {
     const strset *user = kind == CMDDB_COMMANDS ? &ta->user_cmds : &ta->user_envs;
     const strset *local = kind == CMDDB_COMMANDS ? &ta->inferred_cmds : &ta->inferred_envs;
+    const strset *recent = kind == CMDDB_COMMANDS ? &ta->fragment_cmds : &ta->fragment_envs;
     strset extra = {0};
-    const strset *sets[] = {user, local};
-    for (size_t k = 0; k < 2; k++)
+    const strset *sets[] = {user, local, recent};
+    for (size_t k = 0; k < (ta->is_fragment ? 3u : 2u); k++)
         for (size_t i = 0; i < sets[k]->cap; i++)
             if (sets[k]->slots[i]) strset_add(&extra, sets[k]->slots[i]);
     size_t n = cmddb_suggest(&ta->db, &extra, kind, name, len, out, max);
     strset_free(&extra);
     return n;
+}
+
+/* The category of a word in the most recent check that contained it
+ * (0 if none of the last KIND_HISTORY checks did). */
+static unsigned recent_category(const texaspell *ta, const char *word, size_t len)
+{
+    for (int i = 0; i < KIND_HISTORY; i++) {
+        const strset *k = &ta->kinds[(ta->kinds_next - i + KIND_HISTORY) % KIND_HISTORY];
+        unsigned *v = strset_valn(k, word, len);
+        if (v && *v)
+            return *v;
+    }
+    return 0;
 }
 
 size_t ta_suggest(texaspell *ta, const char *word, size_t len, char **out, size_t max)
@@ -1072,11 +1420,11 @@ size_t ta_suggest(texaspell *ta, const char *word, size_t len, char **out, size_
         }
         return n;
     }
-    unsigned *category = strset_valn(&ta->recent_kinds, word, len);
-    if (category && (*category & 255) == TA_ENVIRONMENT + 1)
+    unsigned category = recent_category(ta, word, len);
+    if ((category & 255) == TA_ENVIRONMENT + 1)
         return suggest_names(ta, CMDDB_ENVIRONMENTS, word, len, out, max);
-    if (category && (*category & 255) == TA_OPTION + 1)
-        return cmddb_suggest(option_db(ta, (int)(*category >> 8) - 1), &ta->user_keys, CMDDB_KEYS,
+    if ((category & 255) == TA_OPTION + 1)
+        return cmddb_suggest(option_db(ta, (int)(category >> 8) - 1), &ta->user_keys, CMDDB_KEYS,
                              word, len, out, max);
     speller *sp = ta->sp;
     for (int i = 0; i < RECENT_WORDS; i++) {
@@ -1095,14 +1443,14 @@ void ta_learn(texaspell *ta, const char *word, size_t len)
 {
     if (len == 0 || len > 250 || memchr(word, '\n', len))
         return;
-    unsigned *category = strset_valn(&ta->recent_kinds, word, len);
+    unsigned category = recent_category(ta, word, len);
     if (len > 1 && word[0] == '\\') {
         strset_addn(&ta->user_cmds, word + 1, len - 1);
         append_line(ta, "commands.txt", word, len);
-    } else if (category && (*category & 255) == TA_ENVIRONMENT + 1) {
+    } else if ((category & 255) == TA_ENVIRONMENT + 1) {
         strset_addn(&ta->user_envs, word, len);
         append_line(ta, "commands.txt", word, len);
-    } else if (category && (*category & 255) == TA_OPTION + 1) {
+    } else if ((category & 255) == TA_OPTION + 1) {
         char line[260];
         strset_addn(&ta->user_keys, word, len);
         memcpy(line, word, len);

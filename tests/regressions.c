@@ -97,6 +97,51 @@ int main(int argc, char **argv)
     remove(package_path);
     remove(path);
     expect(ta, "deleted preamble no longer defines commands", "\\input{preamble}\\zzaliasmacro", 1);
+
+    /* 0.3: percent signs in verbatim-like arguments are not comments */
+    expect(ta, "percent in href URL preserves following prose",
+           "\\href{https://example.test/a%20b}{the mispellt link}\nA secnd line", 2);
+    expect(ta, "percent in lstinline code preserves following prose",
+           "\\usepackage{listings}\\lstinline{printf(\"%d\", x)} then mispellt", 1);
+    expect(ta, "percent in mintinline code preserves following prose",
+           "\\usepackage{minted}\\mintinline{c}{printf(\"%d\")} then mispellt", 1);
+
+    /* 0.3: a lone line of a setup command's options */
+    expect(ta, "lone line of known hyperref options", "  colorlinks=true, linkcolor=blue,", 0);
+    expect(ta, "lone line with bare known options", "  bookmarks=true, bookmarksnumbered, hidelinks", 0);
+    expect(ta, "known key followed by prose is still prose", "width = the mispellt value", 1);
+
+    /* 0.3: partial text uses the context of recent full documents */
+    char ctx_path[2200];
+    snprintf(ctx_path,sizeof ctx_path,"%s/zzctxpackage.sty",dir);
+    write_file(ctx_path,"\\ProvidesPackage{zzctxpackage}\n\\newcommand{\\zzctxcommand}{Title}\n");
+    expect(ta, "full document with its own package and macro",
+           "\\documentclass{article}\\usepackage{zzctxpackage}\\newcommand{\\zzdocmacro}{x}"
+           "\\begin{document}\\zzdocmacro\\zzctxcommand\\end{document}", 0);
+    expect(ta, "fragment knows recent document's macro and package",
+           "Later \\zzdocmacro and \\zzctxcommand.", 0);
+    expect(ta, "another full document uses only its own context",
+           "\\documentclass{article}\\begin{document}\\zzdocmacro\\zzctxcommand\\end{document}", 2);
+    expect(ta, "fragment still knows the earlier recent document", "\\zzdocmacro", 0);
+    expect(ta, "fragment definitions are still not remembered", "\\zzlocalmacro", 1);
+
+    /* 0.3: categories survive an intervening check */
+    expect(ta, "misspelt environment flagged", "\\begin{itemzie}\\end{itemzie}", 2);
+    expect(ta, "intervening check of other text", "Some other text.", 0);
+    char *env_suggestions[10];
+    size_t env_count = ta_suggest(ta, "itemzie", 7, env_suggestions, 10);
+    int env_found = 0;
+    for (size_t i = 0; i < env_count; i++) {
+        if (!strcmp(env_suggestions[i], "itemize")) env_found = 1;
+        free(env_suggestions[i]);
+    }
+    if (!env_found) { fprintf(stderr, "FAIL environment suggestions after another check\n"); failures++; }
+    else puts("ok    environment suggestions after another check");
+    ta_learn(ta, "itemzie", 7);
+    expect(ta, "Learn Spelling after another check learns the environment",
+           "\\begin{itemzie}\\end{itemzie}", 0);
+    expect(ta, "learnt environment is not a prose word", "itemzie", 1);
+    ta_forget(ta, "itemzie", 7);
     if (ta_use_language(ta,"de_DE",err,sizeof err)) {
         ta_use_language(ta,"en_GB",err,sizeof err);
         expect(ta, "ordinary environment restores language",
@@ -118,6 +163,7 @@ int main(int argc, char **argv)
     expect(ta, "inferred command does not persist after reopening", "\\zzlocalmacro", 1);
     expect(ta, "legacy auto commands do not silently persist", "\\zzlegacyignored", 1);
     expect(ta, "explicit learned command survives reopening", "\\zzpersistentmacro", 0);
+    expect(ta, "recent document context survives reopening", "\\zzdocmacro", 0);
     ta_close(ta);
     return failures ? 1 : 0;
 }

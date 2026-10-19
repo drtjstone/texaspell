@@ -212,6 +212,75 @@ int cmddb_copy(cmddb *dst, const cmddb *src)
     return 1;
 }
 
+/* Add everything src knows to dst. A command known in src (defined, or
+ * mentioned in two of its files) becomes known in dst; single mentions are
+ * not added together, because the two databases may share files. */
+int cmddb_difference(cmddb *out, const cmddb *full, const cmddb *base)
+{
+    memset(out, 0, sizeof *out);
+    for (size_t i = 0; i < full->cmds.cap; i++) {
+        const char *v = full->cmds.slots[i];
+        if (!v)
+            continue;
+        size_t len = strlen(v);
+        const unsigned *b = strset_valn(&base->cmds, v, len);
+        unsigned fv = full->cmds.vals[i], bv = b ? *b : 0;
+        if (fv == bv)
+            continue;
+        if (strset_add(&out->cmds, v) < 0) {
+            cmddb_free(out);
+            return 0;
+        }
+        *strset_valn(&out->cmds, v, len) =
+            (fv & ~bv & CMD_DEFINED) | (fv / CMD_FILE - bv / CMD_FILE) * CMD_FILE;
+    }
+    const strset *from[] = {&full->envs, &full->keys, &full->tried, &full->loaded};
+    const strset *in[] = {&base->envs, &base->keys, &base->tried, &base->loaded};
+    strset *to[] = {&out->envs, &out->keys, &out->tried, &out->loaded};
+    for (size_t k = 0; k < 4; k++)
+        for (size_t i = 0; i < from[k]->cap; i++) {
+            const char *v = from[k]->slots[i];
+            if (v && !strset_hasn(in[k], v, strlen(v)) && strset_add(to[k], v) < 0) {
+                cmddb_free(out);
+                return 0;
+            }
+        }
+    memcpy(out->kpsewhich, full->kpsewhich, sizeof out->kpsewhich);
+    out->have_kernel = full->have_kernel && !base->have_kernel;
+    out->files_read = full->files_read - base->files_read;
+    return 1;
+}
+
+int cmddb_merge(cmddb *dst, const cmddb *src)
+{
+    /* every file already read (another package loads the same ones):
+     * counting the commands again would inflate them */
+    int fresh = 0;
+    for (size_t i = 0; i < src->loaded.cap && !fresh; i++)
+        if (src->loaded.slots[i] &&
+            !strset_hasn(&dst->loaded, src->loaded.slots[i], strlen(src->loaded.slots[i])))
+            fresh = 1;
+    for (size_t i = 0; fresh && i < src->cmds.cap; i++) {
+        const char *v = src->cmds.slots[i];
+        if (!v)
+            continue;
+        if (strset_add(&dst->cmds, v) < 0)
+            return 0;
+        unsigned *d = strset_valn(&dst->cmds, v, strlen(v));
+        unsigned sv = src->cmds.vals[i];
+        *d = ((*d | sv) & CMD_DEFINED) | (*d / CMD_FILE + sv / CMD_FILE) * CMD_FILE;
+    }
+    const strset *from[] = {&src->envs, &src->keys, &src->tried, &src->loaded};
+    strset *to[] = {&dst->envs, &dst->keys, &dst->tried, &dst->loaded};
+    for (size_t k = 0; k < 4; k++)
+        for (size_t i = 0; i < from[k]->cap; i++)
+            if (from[k]->slots[i] && strset_add(to[k], from[k]->slots[i]) < 0)
+                return 0;
+    dst->have_kernel |= src->have_kernel;
+    dst->files_read += src->files_read;
+    return 1;
+}
+
 /* ------------------------------------------------------------------------
  * A growable list of names
  * ---------------------------------------------------------------------- */
@@ -516,7 +585,7 @@ size_t cmddb_load(cmddb *db, const char *const *names, size_t count, int *found)
 
         load_ctx lc = {db, &next, {0}};
         strset_init(&lc.mentioned);
-        ts_callbacks cb = {&lc, NULL, on_define, NULL};
+        ts_callbacks cb = {&lc, NULL, on_define, NULL, NULL};
         for (size_t i = 0; i < cur.n; i++) {
             if (!paths[i])
                 continue;

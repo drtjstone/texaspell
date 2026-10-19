@@ -1,3 +1,35 @@
+# TeXAspell 0.3
+
+Fixes for the problems found in a review of 0.2. Each has a regression test
+in `tests/regressions.c`.
+
+- **Partial text knows its document again.** In 0.2, isolating each request
+  meant that text typed without its preamble lost the document's packages
+  and `\newcommand`s, so `\ac`, `\autocite`, `\SI` and the document's own
+  macros were flagged while typing. TeXAspell now remembers the packages and
+  definitions of the last few documents checked in full
+  (`remember_documents = 8` in `config.txt`, stored in
+  `recent-documents.txt`, kept across restarts) and accepts them in text
+  without `\documentclass`. A full document is still checked against its own
+  context only.
+- **A `%` in a URL or inline code no longer stops checking.** `\href`'s URL
+  and the code in `\lstinline`/`\mintinline` are now read verbatim, so
+  `a%20b` or `printf("%d")` no longer hides the rest of the text as a
+  comment.
+- **Lone lines of setup options.** A line such as
+  `colorlinks=true, linkcolor=blue,` typed inside a multi-line
+  `\hypersetup{...}` is recognised as options when the names belong to a
+  setup package in context, rather than only after a `pdf...` key.
+- **Learn Spelling and suggestions after another check.** The category of
+  a flagged name (word, command, environment, option) is remembered for the
+  last 8 checks, not just the latest, so an intervening check-as-you-type
+  request no longer turns an environment into a prose word.
+- **Faster.** Each package's commands are read once per session and reused,
+  so full-document checks take about half the time of 0.2.
+- **`make install`** again replaces the command-line tool rather than
+  overwriting it in place (which macOS answers by killing it) and re-signs
+  it.
+
 # TeXAspell 0.2 — reviewed revision
 
 This revision keeps TeXAspell as a separate macOS spelling service using GNU
