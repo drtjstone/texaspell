@@ -25,10 +25,10 @@ accepted once you use `booktabs` and `\SI` once you use `siunitx`. Commands you
 define yourself with `\newcommand`, `\def`, `\DeclareMathOperator` and so on
 are accepted too.
 
-> **Status: written and tested on Linux, not yet tested on a Mac.** The
-> checking engine and command-line tool pass their tests. The macOS spell
-> service has not been built or run yet. See [First run on a
-> Mac](#first-run-on-a-mac).
+> **Revision 0.2:** the command-line checker, native macOS callbacks and
+> regression suite have been built and tested on macOS. End-to-end TeXShop
+> registration and typing behaviour still need an integration check. See
+> [CHANGES.md](CHANGES.md) for the fixes and migration notes.
 
 ## Requirements
 
@@ -101,12 +101,12 @@ Two details:
 - babel's `english` follows your default (British unless you choose
   otherwise), because many British documents use it. Use `british` or
   `american` to be explicit.
-- While you type, macOS usually sends only the lines you're editing, without
-  the preamble. TeXAspell therefore remembers the main language from the
-  last preamble it saw and uses it until it sees a preamble that sets a
-  different one, or none. If you switch between documents in different
-  languages, use **Check Document Now** once on the new document so
-  TeXAspell sees its preamble.
+- While you type, macOS may send only a fragment without its preamble.
+  A language declaration applies only to the current request; the service
+  does not assume the fragment belongs to the last document it checked.
+  For a fragment with no declaration, the language selected in the spelling
+  panel is the default. Language switches inside the supplied text are
+  still respected, including restoration after an environment ends.
 
 ## Choosing a default language in the Spelling panel
 
@@ -138,9 +138,9 @@ TeXAspell keeps plain-text files in
 | File | What it is |
 |---|---|
 | `config.txt` | British dictionary (`en_GB-ise`, `en_GB-ize` or `en_GB`), dictionaries for other languages, whether to skip ALL-CAPS acronyms, and other options. |
-| `packages.txt` | Packages whose commands are always accepted. TeXAspell adds a package here the first time it sees you load it. |
+| `packages.txt` | Packages whose commands are always accepted. Add packages whose commands should also be accepted in fragments without a preamble. This list is no longer populated automatically. |
 | `commands.txt` | Your own commands (`\mymacro`), environments (`keypoint`) and option names (`myoption=`). **Learn Spelling** on a flagged command, environment or option adds it here. |
-| `auto-commands.txt` | Commands and environments TeXAspell has seen defined in your documents. Safe to edit or delete. |
+| `auto-commands.txt` | Legacy file. No longer read or populated automatically. Move deliberately trusted entries to `commands.txt`. |
 | `words.txt` | Your own words. **Learn Spelling** adds them here. |
 
 After editing these files, restart the service with `pkill TeXAspell`. macOS
@@ -167,14 +167,15 @@ chapter1.tex:19:4: spelling: recieve -> receive, receiver, relieve
 
 - **Partial text.** For check-as-you-type, macOS often sends the spell
   checker only the paragraph or lines being edited. In LaTeX source, that is
-  often a single line. TeXAspell can't always tell what surrounds that text,
-  so it uses two rules of thumb:
+  often a single line. TeXAspell cannot always tell what surrounds that text:
   - If the text contains `\end{align}` (or another maths or verbatim
     environment) before any `\begin`, it assumes the text starts inside that
     environment.
-  - Packages and `\newcommand`s it has seen once are remembered in the
-    settings files. That way, a chapter checked without its preamble still
-    knows your commands.
+  - Definitions in the supplied text and included preambles apply to that
+    check only. To accept custom commands or packages in a fragment whose
+    preamble is unavailable, use **Learn Spelling**, `commands.txt` or
+    `packages.txt`. The service cannot infer document identity from the
+    spelling callbacks.
 
   A line in the middle of a long `align` with neither a `\begin` nor an `\end`
   may have short variable names checked as words. For a whole-document check,
@@ -182,13 +183,16 @@ chapter1.tex:19:4: spelling: recieve -> receive, receiver, relieve
 - **TeX accents.** Words written with TeX accents (`caf\'e`, `na\"ive`) are
   skipped, not checked. Words typed with real accented characters (`café`)
   are checked normally.
-- **Generous command list.** A command counts as known if it appears anywhere
-  in the files of a loaded package. This occasionally accepts an internal
-  command you would never type, but it reliably catches typos.
+- **Generous command list.** A command counts as known if a loaded file
+  defines it or at least two loaded files mention it. The configured default
+  packages are accepted even if the current document does not load them.
+  This is a spelling aid, not a replacement for compiling the document.
 - **Option names** are read from the package source in the same way. A few
   packages generate some option names in ways that can't be read directly.
-  TeXAspell knows about the ones in hyperref and listings. If a valid option
-  is flagged, use **Learn Spelling**. Options are only checked once their
+  TeXAspell knows about the ones in hyperref and listings. Keys and
+  suggestions are limited to the setup package and its dependencies; this
+  is not complete key-family validation. If a valid option is flagged,
+  use **Learn Spelling**. Options are only checked once their
   package is loaded, and only inside the six setup commands listed above.
   `\usepackage[...]` options aren't checked.
 - **Single letters** and words in ALL CAPITALS (with an optional final *s*,
@@ -227,8 +231,17 @@ after `make install`:
 - **Sample documents.** These cover prose, maths, verbatim, fragments of
   documents, option lists and mixed languages, each compared with its
   expected output.
-- **Behaviour checks.** These cover learning and forgetting words, remembered
+- **Behaviour checks.** These cover learning and forgetting words, configured
   packages, `-ise` spellings, acronyms, and choosing a language.
+
+- **Stateful regressions.** `tests/regressions.c` checks repeated requests,
+  prose containing equals signs, option-package separation, comments,
+  definition lifetime, input edits and cycles, language restoration and
+  learning-category ambiguity. CLI read errors are checked too.
+- **Native callback regressions (macOS).** `tests/macos-regressions.m`
+  checks system ignored words, both callback interfaces, UTF-16 ranges,
+  offsets, command replacement backslashes and Learn/Forget callbacks.
+  These tests do not install or register a spelling service.
 
 Tests that need something you haven't installed say `skip` and why. For
 example, the large documents need their packages, and `languages.tex` needs
@@ -268,8 +281,15 @@ is, so it finds such files only in your TeX tree (for example
 input_dirs = ~/Documents/LaTeX:~/Work/Preambles
 ```
 
-Once a preamble has been read, its packages are remembered in
-`packages.txt`, so later checks of parts of the document still know them.
+Preambles are reread on each request in which their input is visible, so
+new files, edits and deletions take effect without a service restart. A
+canonical-path cycle guard and file-count limits bound recursive input.
+If a later fragment has no input line, configure any needed packages in
+`packages.txt` and deliberate custom commands in `commands.txt`.
+
+Existing `packages.txt` files may contain entries automatically accumulated
+by older versions. They are preserved; review them as an explicit allowlist.
+Existing `auto-commands.txt` files are preserved but no longer loaded.
 
 ## Uninstall
 

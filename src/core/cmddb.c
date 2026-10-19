@@ -192,6 +192,26 @@ void cmddb_free(cmddb *db)
     strset_free(&db->loaded);
 }
 
+/* Copy a database into an empty destination. */
+int cmddb_copy(cmddb *dst, const cmddb *src)
+{
+    memset(dst, 0, sizeof *dst);
+    const strset *from[] = {&src->cmds, &src->envs, &src->keys, &src->tried, &src->loaded};
+    strset *to[] = {&dst->cmds, &dst->envs, &dst->keys, &dst->tried, &dst->loaded};
+    for (size_t k = 0; k < 5; k++) {
+        for (size_t i = 0; i < from[k]->cap; i++) {
+            const char *v = from[k]->slots[i];
+            if (!v) continue;
+            if (strset_add(to[k], v) < 0) { cmddb_free(dst); return 0; }
+            *strset_valn(to[k], v, strlen(v)) = from[k]->vals[i];
+        }
+    }
+    memcpy(dst->kpsewhich, src->kpsewhich, sizeof dst->kpsewhich);
+    dst->have_kernel = src->have_kernel;
+    dst->files_read = src->files_read;
+    return 1;
+}
+
 /* ------------------------------------------------------------------------
  * A growable list of names
  * ---------------------------------------------------------------------- */
@@ -316,6 +336,10 @@ static char *read_file(const char *path, size_t *len)
         if (r == 0)
             break;
         n += r;
+    }
+    if (ferror(f)) {
+        free(buf);
+        buf = NULL;
     }
     fclose(f);
     *len = n;

@@ -16,6 +16,7 @@
  * {..} argument:
  *
  *   S / s  skip: nothing inside is checked (labels, keys, file names)
+ *   R      skip a URL/path argument whose percent signs are literal
  *   K / k  key=value: commands are validated but words are not checked
  *   P / p  prose: words are checked (also inside maths, e.g. \text{..})
  *   M / m  maths: commands validated, words not checked
@@ -65,7 +66,7 @@ static spec_entry cmd_specs[] = {
     {"InputIfFileExists", "S"}, {"includegraphics", "kS"},
     {"graphicspath", "S"}, {"DeclareGraphicsExtensions", "S"},
     {"includepdf", "kS"}, {"lstinputlisting", "kS"}, {"inputminted", "kSS"},
-    {"url", "S"}, {"path", "S"}, {"nolinkurl", "S"}, {"href", "kSP"},
+    {"url", "R"}, {"path", "R"}, {"nolinkurl", "R"}, {"href", "kSP"},
     {"hyperref", "kP"}, {"hyperlink", "SP"}, {"hypertarget", "SP"},
     {"hypersetup", "O"}, {"pdfbookmark", "kPS"},
     /* definitions */
@@ -234,7 +235,7 @@ static const env_entry *lookup_env(const char *name, size_t len)
  * Scanner state
  * ---------------------------------------------------------------------- */
 
-typedef enum { M_PROSE, M_MATH, M_KV, M_SKIP } mode;
+typedef enum { M_PROSE, M_MATH, M_KV, M_SKIP, M_RAW_SKIP } mode;
 
 typedef enum {
     C_BASE, C_BRACE, C_BRACKET, C_DOLLAR, C_DDOLLAR, C_PAREN, C_SQUARE, C_ENV
@@ -270,6 +271,7 @@ typedef struct scanner {
     int have_pending_lang;
     char announced[MAX_LANG];    /* last TS_LANGUAGE reported */
     int have_announced;
+    int pdf_fragment; /* only continue known keys after PDF fragment evidence */
     size_t class_opts_a, class_opts_b; /* \documentclass[..] options */
 } scanner;
 
@@ -433,6 +435,7 @@ static size_t match_brace(const char *s, size_t n, size_t q)
     for (size_t i = q; i < n; i++) {
         char c = s[i];
         if (c == '\\') { i++; continue; }
+        if (c == '%') { while (i < n && s[i] != '\n') i++; continue; }
         if (c == '{') d++;
         else if (c == '}' && --d == 0) return i;
     }
@@ -445,6 +448,7 @@ static size_t match_bracket(const char *s, size_t n, size_t q)
     for (size_t i = q + 1; i < n; i++) {
         char c = s[i];
         if (c == '\\') { i++; continue; }
+        if (c == '%') { while (i < n && s[i] != '\n') i++; continue; }
         if (c == '{') { i = match_brace(s, n, i); continue; }
         if (c == ']') return i;
     }
@@ -458,6 +462,11 @@ static size_t skip_ws(const scanner *sc, size_t q)
     int newlines = 0;
     while (q < sc->n) {
         char c = sc->s[q];
+        if (c == '%') {
+            while (q < sc->n && sc->s[q] != '\n') q++;
+            if (q < sc->n) q++; /* the commented newline is not whitespace */
+            continue;
+        }
         if (c == ' ' || c == '\t' || c == '\r') { q++; continue; }
         if (c == '\n' && newlines == 0) { newlines++; q++; continue; }
         break;
@@ -703,6 +712,7 @@ static mode mode_for(char k)
 {
     switch (k) {
     case 'S': case 's': return M_SKIP;
+    case 'R': return M_RAW_SKIP;
     case 'P': case 'p': return M_PROSE;
     case 'M': case 'm': return M_MATH;
     default: return M_KV;
@@ -807,7 +817,7 @@ static void args(scanner *sc, const char *spec)
             continue;
         }
         switch (k) {
-        case 'S': case 'K': case 'P': case 'M':
+        case 'S': case 'R': case 'K': case 'P': case 'M':
             sc->p = q + 1;
             push(sc, mode_for(k), C_BRACE, NULL, 0, spec + 1);
             return;
@@ -890,6 +900,8 @@ static void do_begin(scanner *sc)
         push(sc, M_MATH, C_ENV, name, len, NULL);
     else if (e && e->kind == ENV_KV)
         push(sc, M_KV, C_ENV, name, len, NULL);
+    else
+        push(sc, top(sc)->mode, C_ENV, name, len, NULL);
     args(sc, e && e->spec ? e->spec : "~");
 }
 
@@ -1360,12 +1372,14 @@ static void run(scanner *sc)
             (sc->p == 0 || sc->s[sc->p - 1] == '\n') && fragment_option_line(sc))
             continue;
 
-        if (t->mode == M_SKIP) {
+        if (t->mode == M_SKIP || t->mode == M_RAW_SKIP) {
             if (c == '\\') {
                 sc->p += 2;
+            } else if (c == '%' && t->mode == M_SKIP) {
+                while (sc->p < sc->n && sc->s[sc->p] != '\n') sc->p++;
             } else if (c == '{') {
                 sc->p++;
-                push(sc, M_SKIP, C_BRACE, NULL, 0, NULL);
+                push(sc, t->mode, C_BRACE, NULL, 0, NULL);
             } else if ((c == '}' && t->closer == C_BRACE) ||
                        (c == ']' && t->closer == C_BRACKET)) {
                 sc->p++;
@@ -1568,6 +1582,14 @@ static int fragment_option_line(scanner *sc)
         while (q < n && (s[q] == ' ' || s[q] == '\t'))
             q++;
         int has_value = q < n && s[q] == '=';
+        int pdf_key = kb - ka > 3 && memcmp(s + ka, "pdf", 3) == 0;
+        static const char *const continuation_keys[] = {
+            "colorlinks", "linkcolor", "urlcolor", "citecolor", "filecolor",
+            "bookmarks", "bookmarksnumbered", "hidelinks", NULL
+        };
+        if (!pdf_key && !(sc->pdf_fragment &&
+                         name_in(s + ka, kb - ka, continuation_keys)))
+            break; /* ambiguous name=value text remains prose */
         /* the first item must be name=value; later ones may be bare names
          * ("bookmarks, hidelinks") */
         if (kb - ka < 2 || (!has_value &&
@@ -1594,7 +1616,8 @@ static int fragment_option_line(scanner *sc)
         }
         size_t end = vb < n && s[vb] == ',' ? vb + 1 : vb;
 
-        int is_pdf = kb - ka > 3 && memcmp(s + ka, "pdf", 3) == 0;
+        if (pdf_key) sc->pdf_fragment = 1;
+        int is_pdf = 1; /* recognised PDF fragment or a supported continuation */
         if (sc->cb && sc->cb->option)
             sc->cb->option(sc->cb->ctx, is_pdf ? "hypersetup" : "", is_pdf ? 10 : 0,
                            s + ka, kb - ka, ka, kb);
@@ -1738,6 +1761,11 @@ static int nth_brace_arg(const char *s, size_t len, size_t q, int n, size_t *a, 
 {
     for (int k = 0;; k++) {
         for (;;) {
+            if (q < len && s[q] == '%') {
+                while (q < len && s[q] != '\n') q++;
+                if (q < len) q++;
+                continue;
+            }
             while (q < len && (s[q] == ' ' || s[q] == '\t' || s[q] == '\n' ||
                                s[q] == '\r' || s[q] == '*' || s[q] == '+'))
                 q++;
@@ -1851,6 +1879,7 @@ static int all_letters(const char *s, size_t len)
 static size_t to_brace_arg(const scanner *sc, size_t q)
 {
     for (;;) {
+        q = skip_ws(sc, q);
         while (q < sc->n && (sc->s[q] == ' ' || sc->s[q] == '\t' ||
                              sc->s[q] == '\n' || sc->s[q] == '\r' ||
                              sc->s[q] == '*'))

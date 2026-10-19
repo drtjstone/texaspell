@@ -84,6 +84,7 @@ static TASpellDelegate *gDelegate;
 - (NSArray<NSValue *> *)issueRangesInString:(NSString *)string
                                   languages:(NSArray<NSString *> *)languages
                                   wordCount:(NSInteger *)wordCount
+                                     server:(NSSpellServer *)server
 {
     NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding
                         allowLossyConversion:YES];
@@ -115,6 +116,10 @@ static TASpellDelegate *gDelegate;
     NSMutableArray<NSValue *> *ranges = [NSMutableArray arrayWithCapacity:n];
     for (size_t i = 0; i < n; i++) {
         NSUInteger a = map[issues[i].start], b = map[issues[i].end];
+        NSString *word = [string substringWithRange:NSMakeRange(a, b - a)];
+        if (server && [server isWordInUserDictionaries:word
+                                        caseSensitive:issues[i].kind != TA_WORD])
+            continue;
         [ranges addObject:[NSValue valueWithRange:NSMakeRange(a, b - a)]];
     }
     free(map);
@@ -132,7 +137,8 @@ static TASpellDelegate *gDelegate;
     NSArray<NSValue *> *ranges =
         [self issueRangesInString:stringToCheck
                         languages:language ? @[ language ] : @[]
-                        wordCount:wordCount];
+                        wordCount:wordCount
+                           server:sender];
     if (countOnly || ranges.count == 0)
         return NSMakeRange(NSNotFound, 0);
     return ranges[0].rangeValue;
@@ -155,13 +161,14 @@ static TASpellDelegate *gDelegate;
         return @[];
     }
     NSMutableArray<NSString *> *languages = [NSMutableArray array];
-    if (orthography.allLanguages)
-        [languages addObjectsFromArray:orthography.allLanguages];
     if (orthography.dominantLanguage)
         [languages addObject:orthography.dominantLanguage];
+    if (orthography.allLanguages)
+        [languages addObjectsFromArray:orthography.allLanguages];
     NSArray<NSValue *> *ranges = [self issueRangesInString:stringToCheck
                                                  languages:languages
-                                                 wordCount:wordCount];
+                                                 wordCount:wordCount
+                                                    server:sender];
     NSMutableArray<NSTextCheckingResult *> *results =
         [NSMutableArray arrayWithCapacity:ranges.count];
     for (NSValue *v in ranges) {

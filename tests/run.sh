@@ -54,7 +54,7 @@ check "forgotten word flagged again" 'gubbins' 1
 check "unknown command flagged" '\mymacro' 1
 "$bin" --learn '\mymacro'
 check "learnt command accepted" '\mymacro' 0
-check "package remembered across runs" '\toprule' 0
+check "configured base package accepted" '\toprule' 0
 check "-ise spelling accepted" 'organise' 0
 check "-ize spelling flagged by en_GB-ise" 'organize' 1
 check "acronyms skipped" 'NHS MPs HMT' 0

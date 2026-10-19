@@ -31,13 +31,15 @@ void ta_close(texaspell *ta);
 
 /* Check UTF-8 text. Returns the number of issues and sets *out to a
  * malloc'd array (free it). *nwords, if not NULL, gets the number of words
- * and commands examined. */
+ * and commands examined. Each call has independent inferred definitions,
+ * package additions and document language. Only explicit user allowlists
+ * and configured base packages persist between calls. */
 size_t ta_check(texaspell *ta, const char *text, size_t len,
                 ta_issue **out, size_t *nwords);
 
 /* Suggestions for a flagged word. A word starting with a backslash is
- * treated as a command; an environment name or option key flagged recently
- * is treated as one. Each out[i] is malloc'd. */
+ * treated as a command. Other names use categories from the latest check
+ * only; ambiguous categories default to prose. Each out[i] is malloc'd. */
 size_t ta_suggest(texaspell *ta, const char *word, size_t len,
                   char **out, size_t max);
 

@@ -51,6 +51,10 @@ static char *read_all(FILE *f, size_t *len)
             break;
         n += r;
     }
+    if (ferror(f)) {
+        free(buf);
+        return NULL;
+    }
     *len = n;
     return buf;
 }
@@ -186,6 +190,9 @@ int main(int argc, char **argv)
         if (text) {
             flagged |= check_text(ta, "<stdin>", text, len, suggest, list);
             free(text);
+        } else {
+            fprintf(stderr, "texaspell: cannot read standard input (I/O error or out of memory)\n");
+            failed = 1;
         }
     }
     for (int i = first_file; i < argc; i++) {
@@ -210,6 +217,9 @@ int main(int argc, char **argv)
         if (text) {
             flagged |= check_text(ta, argv[i], text, len, suggest, list);
             free(text);
+        } else {
+            fprintf(stderr, "texaspell: cannot read %s (I/O error or out of memory)\n", argv[i]);
+            failed = 1;
         }
     }
     ta_close(ta);

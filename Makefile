@@ -11,7 +11,7 @@
 #   make install LANGUAGES="en_GB en_US de_DE"
 
 CC      ?= cc
-CFLAGS  ?= -O2 -g
+CFLAGS  ?= -O3 -g
 CFLAGS  += -std=c99 -Wall -Wextra -Wno-unused-parameter
 LDLIBS  += -laspell
 
@@ -46,8 +46,20 @@ build/texaspell: $(CORE_SRC) $(CORE_HDR) src/cli/main.c
 	@mkdir -p build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(CORE_SRC) src/cli/main.c $(LDFLAGS) $(LDLIBS)
 
-test: build/texaspell
+build/regressions: $(CORE_SRC) $(CORE_HDR) tests/regressions.c
+	@mkdir -p build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(CORE_SRC) tests/regressions.c $(LDFLAGS) $(LDLIBS)
+
+ifeq ($(UNAME),Darwin)
+build/macos-regressions: $(CORE_SRC) $(CORE_HDR) src/macos/main.m tests/macos-regressions.m
+	@mkdir -p build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -fobjc-arc -o $@ $(CORE_SRC) tests/macos-regressions.m $(LDFLAGS) $(LDLIBS) -framework AppKit
+test: build/macos-regressions
+endif
+
+test: build/texaspell build/regressions
 	sh tests/run.sh
+	sh tests/regressions.sh
 
 ifeq ($(UNAME),Darwin)
 service: $(SERVICE)
@@ -75,14 +87,10 @@ $(SERVICE): FORCE
 
 install: $(SERVICE) build/texaspell
 	-pkill -x TeXAspell
-	@mkdir -p $(SERVICES_DIR) $(PREFIX)/bin
-	rm -rf $(SERVICES_DIR)/TeXAspell.service
-	cp -R $(SERVICE) $(SERVICES_DIR)/
-	@# Remove first: macOS kills a program whose file was overwritten in
-	@# place, because it remembers the old file's code signature.
-	rm -f $(PREFIX)/bin/texaspell
-	cp build/texaspell $(PREFIX)/bin/texaspell
-	codesign --force --sign - $(PREFIX)/bin/texaspell
+	@mkdir -p "$(SERVICES_DIR)" "$(PREFIX)/bin"
+	rm -rf "$(SERVICES_DIR)/TeXAspell.service"
+	cp -R -X $(SERVICE) "$(SERVICES_DIR)/"
+	cp build/texaspell "$(PREFIX)/bin/"
 	/System/Library/CoreServices/pbs -update
 	@echo
 	@echo "Installed, offering: $(LANGUAGES)"
@@ -92,8 +100,8 @@ install: $(SERVICE) build/texaspell
 
 uninstall:
 	-pkill -x TeXAspell
-	rm -rf $(SERVICES_DIR)/TeXAspell.service
-	rm -f $(PREFIX)/bin/texaspell
+	rm -rf "$(SERVICES_DIR)/TeXAspell.service"
+	rm -f "$(PREFIX)/bin/texaspell"
 	/System/Library/CoreServices/pbs -update
 else
 service install uninstall:

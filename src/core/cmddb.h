@@ -25,6 +25,7 @@ typedef struct cmddb {
 
 void cmddb_init(cmddb *db, const char *kpsewhich_setting);
 void cmddb_free(cmddb *db);
+int cmddb_copy(cmddb *dst, const cmddb *src);
 
 /* Load files (e.g. "latex.ltx", "amsmath.sty", "article.cls") and, through
  * them, everything they load. Names already tried are ignored. Returns the

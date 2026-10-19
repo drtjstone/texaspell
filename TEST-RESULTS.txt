@@ -1,0 +1,143 @@
+TeXAspell 0.2 verification — 18 October 2026
+
+Full test command: make test
+Result: success (exit 0)
+Original typo cases: 227/227 caught with correct suggestion; 217 ranked first.
+New engine, CLI and macOS callback checks: 50/50 passed.
+Original fixture and behaviour checks: all passed; no skips reported.
+
+Additional engine run with AddressSanitizer and UndefinedBehaviorSanitizer:
+success (exit 0), no sanitizer diagnostics.
+
+macOS service: built successfully and ad hoc signed locally.
+Signature and service Info.plist verified.
+
+No installation or live TeXShop integration test was performed.
+Original source folder and ZIP were not modified.
+
+--- Full test output ---
+
+cc -I/opt/homebrew/opt/aspell/include -O2 -g -std=c99 -Wall -Wextra -Wno-unused-parameter -o build/texaspell src/core/strset.c src/core/scan.c src/core/cmddb.c src/core/speller.c src/core/checker.c src/core/languages.c src/cli/main.c -L/opt/homebrew/opt/aspell/lib -Wl,-rpath,/opt/homebrew/opt/aspell/lib -laspell
+cc -I/opt/homebrew/opt/aspell/include -O2 -g -std=c99 -Wall -Wextra -Wno-unused-parameter -o build/regressions src/core/strset.c src/core/scan.c src/core/cmddb.c src/core/speller.c src/core/checker.c src/core/languages.c tests/regressions.c -L/opt/homebrew/opt/aspell/lib -Wl,-rpath,/opt/homebrew/opt/aspell/lib -laspell
+cc -I/opt/homebrew/opt/aspell/include -O2 -g -std=c99 -Wall -Wextra -Wno-unused-parameter -fobjc-arc -o build/macos-regressions src/core/strset.c src/core/scan.c src/core/cmddb.c src/core/speller.c src/core/checker.c src/core/languages.c tests/macos-regressions.m -L/opt/homebrew/opt/aspell/lib -Wl,-rpath,/opt/homebrew/opt/aspell/lib -laspell -framework AppKit
+sh tests/run.sh
+ok    defs.tex
+ok    fragment-hypersetup.tex
+ok    fragment-math.tex
+ok    fragment-verbatim.tex
+ok    input-preamble.tex
+ok    languages.tex
+ok    options.tex
+ok    sample.tex
+ok    shared-preamble.tex
+ok    valid-beamer.tex
+ok    valid-commands.tex
+ok    unknown word flagged
+ok    learnt word accepted
+ok    learnt word accepted capitalised
+ok    forgotten word flagged again
+ok    unknown command flagged
+ok    learnt command accepted
+ok    configured base package accepted
+ok    -ise spelling accepted
+ok    -ize spelling flagged by en_GB-ise
+ok    acronyms skipped
+ok    en_US dictionary selectable
+ok    unknown hyperref option flagged
+ok    pdftitle text is spell-checked
+typos: 227 of 227 caught with the right suggestion (217 as the first suggestion)
+sh tests/regressions.sh
+ok    equals preserves prose checks
+ok    ordinary equals inside document
+ok    PDF fragment does not swallow following prose
+ok    PDF fragment metadata text checked
+ok    hyperref rejects geometry key
+ok    geometry still accepts its own key
+ok    literal percent in URL preserves following prose
+ok    reference comment before argument
+ok    citation comment before argument
+ok    brace inside reference comment is ignored
+ok    comment brace in option preserves prose
+ok    definition available in same request
+ok    local definition suggestion context
+ok    local command suggestions
+ok    definition does not leak to next request
+ok    explicit command learning still works
+ok    explicit command persists
+ok    explicit command forgetting
+ok    environment with prose-like name
+ok    subsequent prose classified as prose
+ok    prose suggestions after environment
+ok    same spelling as prose and environment
+ok    Learn Spelling uses current prose category
+ok    missing preamble initial check
+ok    newly created preamble retried
+ok    edited preamble reread and removed definition expires
+ok    cyclic input terminates
+ok    aliased cyclic input terminates
+ok    document package available in current request
+ok    document package does not leak to next request
+ok    deleted preamble no longer defines commands
+ok    ordinary environment restores language
+ok    nested ordinary environments restore language
+ok    document language applies to current request
+ok    document language does not override next selection
+ok    inferred command does not persist after reopening
+ok    legacy auto commands do not silently persist
+ok    explicit learned command survives reopening
+ok    unreadable input returns error status 2
+2026-10-18 17:59:19.689 macos-regressions[92563:18709466] TeXAspell: asked for en_GB -> en_GB
+2026-10-18 17:59:19.690 macos-regressions[92563:18709466] TeXAspell: asked for en_GB,en_GB -> en_GB
+2026-10-18 17:59:19.693 macos-regressions[92563:18709466] TeXAspell: asked for en_GB -> en_GB
+ok    legacy callback advances past ignored first word
+ok    legacy callback consults system dictionary
+ok    unified callback retains system selector
+ok    unified callback filters ignored word and applies offset
+ok    unified callback accepts entirely ignored input
+ok    unified callback converts emoji UTF-8 offsets to UTF-16
+ok    command range includes backslash
+ok    LaTeX dictionary lookup is case sensitive
+ok    command replacement preserves backslash
+ok    native Learn Spelling callback
+ok    native Forget Spelling callback
+
+--- Sanitized engine regression output ---
+
+ok    equals preserves prose checks
+ok    ordinary equals inside document
+ok    PDF fragment does not swallow following prose
+ok    PDF fragment metadata text checked
+ok    hyperref rejects geometry key
+ok    geometry still accepts its own key
+ok    literal percent in URL preserves following prose
+ok    reference comment before argument
+ok    citation comment before argument
+ok    brace inside reference comment is ignored
+ok    comment brace in option preserves prose
+ok    definition available in same request
+ok    local definition suggestion context
+ok    local command suggestions
+ok    definition does not leak to next request
+ok    explicit command learning still works
+ok    explicit command persists
+ok    explicit command forgetting
+ok    environment with prose-like name
+ok    subsequent prose classified as prose
+ok    prose suggestions after environment
+ok    same spelling as prose and environment
+ok    Learn Spelling uses current prose category
+ok    missing preamble initial check
+ok    newly created preamble retried
+ok    edited preamble reread and removed definition expires
+ok    cyclic input terminates
+ok    aliased cyclic input terminates
+ok    document package available in current request
+ok    document package does not leak to next request
+ok    deleted preamble no longer defines commands
+ok    ordinary environment restores language
+ok    nested ordinary environments restore language
+ok    document language applies to current request
+ok    document language does not override next selection
+ok    inferred command does not persist after reopening
+ok    legacy auto commands do not silently persist
+ok    explicit learned command survives reopening
